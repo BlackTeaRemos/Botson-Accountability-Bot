@@ -1,0 +1,5 @@
+discord.py
+pytz
+pandas
+matplotlib
+sqlalchemy

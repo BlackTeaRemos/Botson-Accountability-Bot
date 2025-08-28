@@ -1,0 +1,17 @@
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+*.sqlite3
+*.db
+.env
+.env.*
+.git
+.gitignore
+archive/
+__MACOSX/
+*.log
+*.csv
+*.json
+!daily_log_*.json
+!scores_log_*.csv

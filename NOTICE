@@ -1,0 +1,38 @@
+Botson - Accountability Bot
+Copyright (c) 2025 @BlackTeaRemos
+
+This product includes software developed by contributors to the Botson project.
+
+## Acknowledgments
+This project was reworked from an earlier version of the bot, provided to the repository author. Mentioned here at the original author's request.
+
+## Third-Party Software Acknowledgments
+
+This project includes software developed by the following third parties:
+
+### discord.py
+Copyright (c) 2015-present Rapptz
+
+Licensed under the MIT License.
+
+### SQLAlchemy
+Copyright Mike Bayer
+
+Licensed under the MIT License.
+
+### pandas
+Copyright (c) 2008-2011, AQR Capital Management, LLC, Lambda Foundry, Inc. and PyData Development Team
+Copyright (c) 2011-2023, Open source contributors
+
+Licensed under the BSD 3-Clause License.
+
+### matplotlib
+Copyright (c) 2012- Matplotlib Development Team; All Rights Reserved
+Copyright (c) 2002-2011 John D. Hunter; All Rights Reserved
+
+Licensed under the Matplotlib License Agreement.
+
+### pytz
+Copyright Stuart Bishop
+
+Licensed under the MIT License.

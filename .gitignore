@@ -1,0 +1,17 @@
+.env
+__pycache__/
+*.pyc
+*.pyo
+.Python
+env/
+venv/
+.venv/
+.old/
+build/
+dist/
+
+*.py[cod]
+*$py.class
+
+.vscode/
+.private/

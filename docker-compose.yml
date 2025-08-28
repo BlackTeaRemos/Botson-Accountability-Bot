@@ -1,0 +1,13 @@
+version: '3.9'
+services:
+  accountability-bot:
+    build: .
+    container_name: accountability-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - bot_data:/data
+
+volumes:
+  bot_data:
