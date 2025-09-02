@@ -38,12 +38,19 @@ Alternatively use an `.env` file:
 
 ## Environment Variables
 - `DISCORD_TOKEN` (required)
-- `BOT_DB_PATH` (default `/data/bot.db` inside container)
+- `BOT_DB_PATH` (default `/data/bot.db` inside container or `bot.db` locally)
 - `BACKFILL_DEFAULT_DAYS` (default 30)
 - `USE_DB_ONLY` (default false)
+- `GUILD_ID` (optional; speeds up slash command sync in a primary guild)
+- `DAILY_GOAL_TASKS` (default 5)
+
+Scheduler (embed posts):
+- `SCHEDULED_REPORTS_ENABLED` (default true if unset/empty) — enable the background scheduler
+- `SCHEDULED_REPORT_INTERVAL_MINUTES` (default 60) — minutes between posts
+- `SCHEDULED_REPORT_CHANNEL_IDS` (optional CSV of channel IDs) — if set, only these channels get posts; otherwise, all registered channels are used
 
 ## Current Status
-Scaffold includes: migrations, event bus, channel registration, message ingestion, habit parsing (raw scores), basic weekly report (raw sums). Normalization, backfill, reminders, and rich reporting pending.
+Scaffold includes: migrations, event bus, channel registration, message ingestion, habit parsing (raw scores), weekly report (image and embed), and a configurable scheduler for periodic embed posts.
 
 ## License
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)

@@ -37,6 +37,7 @@ channels = ChannelRegistrationService(bus, db, config.backfill_default_days)
 habit_parser = HabitParser(bus)
 storage = PersistenceService(db)
 reporting = ReportingService(db, config)
+report_scheduler: object | None = None
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
@@ -59,6 +60,23 @@ async def on_ready() -> None:
             print(f"[Commands] Guild sync ({config.guild_id}) -> {len(guild_synced)} commands (immediate)")
     except Exception as e:
         print(f"[Commands] Sync failed: {e}")
+    # Start scheduled reports if enabled
+    global report_scheduler
+    import os
+    raw_env = os.getenv('SCHEDULED_REPORTS_ENABLED')
+    print(f"[Scheduler] Enabled setting: {config.scheduled_reports_enabled}; env(SCHEDULED_REPORTS_ENABLED)={raw_env}")
+    if config.scheduled_reports_enabled:
+        if report_scheduler is None:
+            # Lazy import to avoid optional dependency/type-resolution noise
+            from .services.scheduler import ReportScheduler  # type: ignore
+            report_scheduler = ReportScheduler(bot, storage, reporting, config)  # type: ignore[assignment]
+            report_scheduler.start()  # type: ignore[attr-defined]
+            print(
+                f"[Scheduler] Started (interval={config.scheduled_report_interval_minutes}m, "
+                f"channels={list(config.scheduled_report_channel_ids) if config.scheduled_report_channel_ids else 'all-registered'})"
+            )
+    else:
+        print("[Scheduler] Disabled by configuration; not started.")
 
 
 def register_bot_commands() -> None:
