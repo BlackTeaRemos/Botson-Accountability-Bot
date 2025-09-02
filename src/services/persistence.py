@@ -1,5 +1,6 @@
 from __future__ import annotations
 from typing import Optional, Any, Dict, List
+from datetime import datetime
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_, func, text
 from ..db.connection import Database
@@ -17,6 +18,26 @@ class PersistenceService:
                 and_(Channel.discord_channel_id == str(discord_channel_id), Channel.active == True)
             ).first()
             return channel is not None
+        finally:
+            session.close()
+
+    def list_active_channel_ids(self) -> list[int]:
+        """Return all active registered Discord channel IDs as integers.
+
+        Returns:
+            A list of channel ids. Non-numeric ids are skipped defensively.
+        """
+        session: Session = self.db.get_session()
+        try:
+            rows = session.query(Channel.discord_channel_id).filter(Channel.active == True).all()
+            ids: list[int] = []
+            for (cid_str,) in rows:
+                try:
+                    ids.append(int(cid_str))
+                except Exception:
+                    # Skip non-numeric values
+                    continue
+            return ids
         finally:
             session.close()
 
@@ -48,13 +69,20 @@ class PersistenceService:
             if not channel:
                 return
 
+            # Parse created_at string to datetime for DateTime column
+            try:
+                created_dt = datetime.fromisoformat(created_at.replace('Z', ''))
+            except Exception:
+                # Fallback: store as naive datetime parsed best-effort
+                created_dt = datetime.strptime(created_at[:19], "%Y-%m-%dT%H:%M:%S")
+
             # Create new message
             message = Message(
                 discord_message_id=str(discord_message_id),
                 channel_id=channel.id,
                 author_id=str(author_id),
                 author_display=author_display,
-                created_at=created_at,
+                created_at=created_dt,
                 content=content
             )
 

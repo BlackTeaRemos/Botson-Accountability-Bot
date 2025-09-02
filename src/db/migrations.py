@@ -1,5 +1,6 @@
 from sqlalchemy import create_engine, MetaData, Table, Column, Integer, String, DateTime, Float, Text, Boolean, ForeignKey, UniqueConstraint, Index
 from sqlalchemy.sql import text
+import os
 
 # Import models for metadata
 from .models import Base
@@ -14,17 +15,23 @@ def generate_migration_sql() -> str:
     """
     from sqlalchemy.schema import CreateTable, CreateIndex
     
-    sql_statements = []
+    sql_statements: list[str] = []
     
     # Generate CREATE TABLE statements
     for table in metadata.sorted_tables:
-        sql_statements.append(str(CreateTable(table).compile(create_engine('sqlite://'))))
+        stmt = str(CreateTable(table).compile(create_engine('sqlite://'))).strip()
+        if not stmt.endswith(";"):
+            stmt += ";"
+        sql_statements.append(stmt)
     
     # Generate CREATE INDEX statements for indexes not covered by table constraints
     for table in metadata.sorted_tables:
         for index in table.indexes:
             if not index._column_flag:  # Skip implicit indexes from unique constraints
-                sql_statements.append(str(CreateIndex(index).compile(create_engine('sqlite://'))))
+                stmt = str(CreateIndex(index).compile(create_engine('sqlite://'))).strip()
+                if not stmt.endswith(";"):
+                    stmt += ";"
+                sql_statements.append(stmt)
     
     return '\n'.join(sql_statements)
 
@@ -45,6 +52,11 @@ def ensure_migrated(database_path: str) -> None:
     Args:
         database_path: Path to the SQLite database file.
     """
+    # Create parent directory if necessary so SQLite can create the DB file
+    parent_dir = os.path.dirname(os.path.abspath(database_path))
+    if parent_dir and not os.path.exists(parent_dir):
+        os.makedirs(parent_dir, exist_ok=True)
+
     # Create engine for migrations
     engine = create_engine(
         f"sqlite:///{database_path}",
@@ -55,25 +67,27 @@ def ensure_migrated(database_path: str) -> None:
     
     # Set up SQLite pragmas
     with engine.connect() as conn:
-        conn.execute(text("PRAGMA journal_mode=WAL"))
-        conn.execute(text("PRAGMA foreign_keys=ON"))
+        conn.exec_driver_sql("PRAGMA journal_mode=WAL")
+        conn.exec_driver_sql("PRAGMA foreign_keys=ON")
         conn.commit()
-    
-    with engine.connect() as connection:
-        connection.execute(text("""
+
+    # Run migrations inside a single transaction to keep state consistent
+    with engine.begin() as connection:
+        connection.execute(text(
+            """
             CREATE TABLE IF NOT EXISTS schema_version (
-                version INTEGER NOT NULL, 
+                version INTEGER NOT NULL,
                 applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
-        """))
-        connection.commit()
-        
+            """
+        ))
+
         result = connection.execute(text(
             "SELECT version FROM schema_version ORDER BY version DESC LIMIT 1"
         ))
         row = result.fetchone()
         current_version = row[0] if row else 0
-        
+
         # Apply pending migrations
         for migration_version, migration_sql in MIGRATIONS:
             if migration_version > current_version and migration_sql.strip():
@@ -81,9 +95,9 @@ def ensure_migrated(database_path: str) -> None:
                 sql_statements = [stmt.strip() for stmt in migration_sql.strip().split(";") if stmt.strip()]
                 for sql_statement in sql_statements:
                     connection.execute(text(sql_statement))
-                
-                # Record migration completion
-                connection.execute(text(
-                    "INSERT INTO schema_version(version) VALUES (?)"
-                ), (migration_version,))
-                connection.commit()
+
+                # Record migration completion (use named bind parameter for SQLAlchemy 2.x)
+                connection.execute(
+                    text("INSERT INTO schema_version(version) VALUES (:version)"),
+                    {"version": migration_version},
+                )
