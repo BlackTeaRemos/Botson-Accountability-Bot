@@ -1,4 +1,9 @@
-from sqlalchemy import create_engine, MetaData, Table, Column, Integer, String, DateTime, Float, Text, Boolean, ForeignKey, UniqueConstraint, Index
+"""Database schema migrations: generate initial DDL from ORM models and apply versions.
+"""
+
+from __future__ import annotations
+
+from sqlalchemy import create_engine
 from sqlalchemy.sql import text
 import os
 
@@ -39,6 +44,20 @@ MIGRATIONS: list[tuple[int, str]] = [
     (
         1,
         generate_migration_sql(),
+    ),
+    # Migration 2: add settings table for runtime config (excludes secrets like token)
+    (
+        2,
+        (
+            """
+            CREATE TABLE IF NOT EXISTS settings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                key VARCHAR NOT NULL UNIQUE,
+                value TEXT NOT NULL,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+            """
+        ).strip(),
     ),
 ]
 

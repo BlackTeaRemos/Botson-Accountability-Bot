@@ -27,7 +27,7 @@ class AppConfig:
     guild_id: Optional[int] = None  # optional for faster command sync
     daily_goal_tasks: int = 5  # target tasks (filled brackets) per day for full score
     scheduled_reports_enabled: bool = True
-    scheduled_report_interval_minutes: int = 0.5
+    scheduled_report_interval_minutes: int = 1
     scheduled_report_channel_ids: tuple[int, ...] = tuple()
 
 

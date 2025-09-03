@@ -1,8 +1,8 @@
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.pool import StaticPool
 from sqlalchemy.sql import text
-from typing import Tuple
+from typing import Any, Mapping, Sequence, List
 
 # Import table definitions from migrations and models
 from .migrations import metadata
@@ -37,18 +37,6 @@ class Database:
         self.metadata = metadata
         self.Base = Base
 
-        # Ensure required PRAGMAs are enabled on every new DB-API connection
-        @event.listens_for(self._engine, "connect")
-        def _set_sqlite_pragma(dbapi_connection, connection_record):  # type: ignore[no-redef]
-            try:
-                cursor = dbapi_connection.cursor()
-                cursor.execute("PRAGMA journal_mode=WAL")
-                cursor.execute("PRAGMA foreign_keys=ON")
-                cursor.close()
-            except Exception:
-                # Best-effort; do not block startup on PRAGMA failures
-                pass
-
     def _setup_connection(self) -> None:
         """Set up SQLite pragmas for the database connection."""
         with self._engine.connect() as conn:
@@ -69,7 +57,7 @@ class Database:
         """
         return self._session_factory()
 
-    def execute_raw(self, sql: str, params: Tuple[object, ...] = ()) -> None:
+    def execute_raw(self, sql: str, params: Mapping[str, Any] | Sequence[Any] | None = None) -> None:
         """Execute raw SQL
 
         Args:
@@ -77,10 +65,13 @@ class Database:
             params: Parameters for SQL query.
         """
         with self._engine.connect() as conn:
-            conn.execute(text(sql), params)
+            if params is None:
+                conn.execute(text(sql))
+            else:
+                conn.execute(text(sql), params)
             conn.commit()
 
-    def query_raw(self, sql: str, params: Tuple[object, ...] = ()):
+    def query_raw(self, sql: str, params: Mapping[str, Any] | Sequence[Any] | None = None) -> List[tuple[Any, ...]]:
         """Execute raw SQL query and return results.
 
         Args:
@@ -91,5 +82,10 @@ class Database:
             List of result rows.
         """
         with self._engine.connect() as conn:
-            result = conn.execute(text(sql), params)
-            return result.fetchall()
+            if params is None:
+                result = conn.execute(text(sql))
+            else:
+                result = conn.execute(text(sql), params)
+            rows = result.fetchall()
+            # SQLAlchemy returns Row objects; normalize to tuples for typing simplicity
+            return [tuple(row) for row in rows]

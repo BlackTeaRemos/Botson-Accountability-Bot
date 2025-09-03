@@ -7,7 +7,7 @@ from typing import Any, Dict, List
 import random
 from datetime import timedelta
 
-from .core.config import load_config
+from .core.config import load_config, AppConfig
 from .db.migrations import ensure_migrated
 from .db.connection import Database
 from .core.events import EventBus
@@ -16,10 +16,12 @@ from .services.channel_registration import ChannelRegistrationService
 from .services.habit_parser import HabitParser
 from .services.persistence import PersistenceService
 from .services.reporting import ReportingService
+from .services.settings import SettingsService
 from . import events
 from .commands import reporting as reporting_commands
 from .commands import debug as debug_commands
 from .commands import channels as channel_commands
+from .commands import config as config_commands
 from .commands import utils as command_utils
 
 intents = discord.Intents.default()
@@ -37,9 +39,111 @@ channels = ChannelRegistrationService(bus, db, config.backfill_default_days)
 habit_parser = HabitParser(bus)
 storage = PersistenceService(db)
 reporting = ReportingService(db, config)
+settings = SettingsService(db)
 report_scheduler: object | None = None
 
 bot = commands.Bot(command_prefix="!", intents=intents)
+
+
+def _compute_overridden_config(base: AppConfig) -> AppConfig:
+    """Overlay DB settings onto the base config (excluding token)."""
+    from dataclasses import replace
+    # Gather overrides
+    tz = settings.get("timezone")
+    use_db_only = settings.get("use_db_only")
+    backfill_days = settings.get("backfill_default_days")
+    guild_id = settings.get("guild_id")
+    daily_goal = settings.get("daily_goal_tasks")
+    sched_enabled = settings.get("scheduled_reports_enabled")
+    sched_interval = settings.get("scheduled_report_interval_minutes")
+    sched_channels = settings.get("scheduled_report_channel_ids")
+
+    def as_int(val: object, default: int) -> int:
+        try:
+            if isinstance(val, bool):
+                return int(val)
+            if isinstance(val, (int, float)):
+                return int(val)
+            if isinstance(val, str):
+                return int(val.strip())
+        except Exception:
+            return default
+        return default
+
+    def as_bool(val: object, default: bool) -> bool:
+        if isinstance(val, bool):
+            return val
+        if isinstance(val, (int, float)):
+            return bool(val)
+        if isinstance(val, str):
+            return val.strip().lower() in ("1", "true", "yes", "on")
+        return default
+
+    from typing import Any, Iterable, cast
+    def as_tuple_ints(val: Any, default: tuple[int, ...]) -> tuple[int, ...]:
+        try:
+            if val is None:
+                return default
+            if isinstance(val, (list, tuple)):
+                out: list[int] = []
+                it: Iterable[Any] = cast(Iterable[Any], val)
+                for item in it:
+                    try:
+                        out.append(int(str(item)))
+                    except Exception:
+                        continue
+                return tuple(out)
+            if isinstance(val, str):
+                # accept CSV string
+                parts = [p.strip() for p in val.split(',') if p.strip()]
+                return tuple(int(p) for p in parts if p.isdigit())
+        except Exception:
+            return default
+        return default
+
+    cfg = replace(
+        base,
+        timezone=str(tz) if isinstance(tz, str) and tz else base.timezone,
+        use_db_only=as_bool(use_db_only, base.use_db_only),
+        backfill_default_days=as_int(backfill_days, base.backfill_default_days),
+        guild_id=as_int(guild_id, base.guild_id or 0) or None,
+        daily_goal_tasks=as_int(daily_goal, base.daily_goal_tasks),
+        scheduled_reports_enabled=as_bool(sched_enabled, base.scheduled_reports_enabled),
+        scheduled_report_interval_minutes=as_int(sched_interval, base.scheduled_report_interval_minutes),
+        scheduled_report_channel_ids=as_tuple_ints(sched_channels, base.scheduled_report_channel_ids),
+    )
+    return cfg
+
+
+async def apply_runtime_settings() -> None:
+    """Reload config overrides from DB and apply to running services."""
+    global config, reporting, report_scheduler
+    new_config = _compute_overridden_config(config)
+    config = new_config
+    # Propagate to services
+    reporting.config = new_config
+    # Restart scheduler according to new settings
+    try:
+        if new_config.scheduled_reports_enabled:
+            if report_scheduler is None:
+                from .services.scheduler import ReportScheduler  # type: ignore
+                report_scheduler = ReportScheduler(bot, storage, reporting, new_config)  # type: ignore[assignment]
+                report_scheduler.start()  # type: ignore[attr-defined]
+            else:
+                # Replace config inside scheduler
+                try:
+                    report_scheduler.config = new_config  # type: ignore[attr-defined]
+                except Exception:
+                    pass
+        else:
+            if report_scheduler is not None:
+                try:
+                    await report_scheduler.stop()  # type: ignore[attr-defined]
+                except Exception:
+                    pass
+                report_scheduler = None
+    except Exception as e:
+        print(f"[Config] Failed to apply scheduler settings: {e}")
 
 
 @bot.event
@@ -60,6 +164,11 @@ async def on_ready() -> None:
             print(f"[Commands] Guild sync ({config.guild_id}) -> {len(guild_synced)} commands (immediate)")
     except Exception as e:
         print(f"[Commands] Sync failed: {e}")
+    # Apply any DB-backed overrides before starting scheduler
+    try:
+        await apply_runtime_settings()
+    except Exception as e:
+        print(f"[Config] Failed to apply runtime settings on startup: {e}")
     # Start scheduled reports if enabled
     global report_scheduler
     import os
@@ -86,16 +195,24 @@ def register_bot_commands() -> None:
     reporting_commands.register_reporting_commands(bot, storage, reporting, channels, config)
     debug_commands.register_debug_commands(bot, storage, generate_random_user_recent)
     channel_commands.register_channel_commands(bot, channels)
+    config_commands.register_config_commands(bot, settings, apply_runtime_settings)
 
     # Inline diagnostics command
     @bot.tree.command(name="diagnostics", description="Show basic diagnostics (db, counts, disk)")
     async def diagnostics_command(interaction: discord.Interaction):
         try:
             snapshot = diagnostics.collect()
-            diagnostics_text = command_utils.json_dumps_compact(snapshot)
-            if len(diagnostics_text) > 1800:
-                diagnostics_text = diagnostics_text[:1800] + "... (truncated)"
-            await interaction.response.send_message(f"```json\n{diagnostics_text}\n```", ephemeral=True)
+            # Prefer a readable summary; if too long, fall back to compact JSON
+            readable = command_utils.format_diagnostics_markdown(snapshot)
+            content: str
+            if len(readable) <= 1900:
+                content = f"```\n{readable}\n```"
+            else:
+                json_text = command_utils.json_dumps_compact(snapshot)
+                if len(json_text) > 1900:
+                    json_text = json_text[:1900] + "... (truncated)"
+                content = f"```json\n{json_text}\n```"
+            await interaction.response.send_message(content, ephemeral=True)
         except Exception as e:
             if not interaction.response.is_done():
                 await interaction.response.send_message(f"Diagnostics error: {e}", ephemeral=True)

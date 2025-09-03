@@ -1,7 +1,6 @@
 from sqlalchemy import Column, Integer, String, DateTime, Float, Text, Boolean, ForeignKey, UniqueConstraint, Index
 from sqlalchemy.orm import declarative_base, relationship
 from sqlalchemy.sql import text
-from typing import List
 
 Base = declarative_base()
 
@@ -36,7 +35,7 @@ class Message(Base):
     parsed_at = Column(DateTime)
     raw_bracket_count = Column(Integer)
     filled_bracket_count = Column(Integer)
-    parse_confidence = Column(Float)
+    parse_confidence = Column(Float)  # type: ignore[assignment]
     extracted_date = Column(String)
 
     # Relationships
@@ -56,8 +55,8 @@ class HabitDailyScore(Base):
     user_id = Column(String, nullable=False)
     date = Column(String, nullable=False)
     channel_id = Column(Integer, ForeignKey('channels.id'), nullable=False)
-    raw_score_sum = Column(Float, nullable=False, default=0.0)
-    normalized_score = Column(Float, nullable=False, default=0.0)
+    raw_score_sum = Column(Float, nullable=False, default=0.0)  # type: ignore[assignment]
+    normalized_score = Column(Float, nullable=False, default=0.0)  # type: ignore[assignment]
     messages_count = Column(Integer, nullable=False, default=0)
     last_updated = Column(DateTime, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
 
@@ -78,7 +77,7 @@ class MonthlyTotal(Base):
     user_id = Column(String, nullable=False)
     month = Column(String, nullable=False)
     channel_id = Column(Integer, ForeignKey('channels.id'), nullable=False)
-    normalized_sum = Column(Float, nullable=False, default=0.0)
+    normalized_sum = Column(Float, nullable=False, default=0.0)  # type: ignore[assignment]
     last_updated = Column(DateTime, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
 
     # Relationships
@@ -136,7 +135,7 @@ class HabitMessageScore(Base):
     user_id = Column(String, nullable=False)
     date = Column(String, nullable=False)
     channel_id = Column(Integer, ForeignKey('channels.id'), nullable=False)
-    raw_ratio = Column(Float, nullable=False)
+    raw_ratio = Column(Float, nullable=False)  # type: ignore[assignment]
     filled_bracket_count = Column(Integer, nullable=False)
     total_bracket_count = Column(Integer, nullable=False)
 
@@ -157,4 +156,15 @@ class GuildSetting(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     guild_id = Column(String, unique=True, nullable=False)
     report_style = Column(String, nullable=False, default='style1')
+    updated_at = Column(DateTime, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+
+class Setting(Base):
+    """Global key/value configuration settings for the bot.
+    """
+    __tablename__ = 'settings'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    key = Column(String, unique=True, nullable=False)
+    value = Column(Text, nullable=False)
     updated_at = Column(DateTime, nullable=False, server_default=text('CURRENT_TIMESTAMP'))

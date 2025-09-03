@@ -9,9 +9,11 @@ __all__ = [
     "debug",
     "channels",
     "utils",
+    "config",
 ]
 
 from . import reporting
 from . import debug
 from . import channels
 from . import utils
+from . import config

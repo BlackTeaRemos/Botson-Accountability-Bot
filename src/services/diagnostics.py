@@ -41,6 +41,22 @@ class DiagnosticsService:
             results["disk"] = {"free_mb": round(free/1024/1024, 2)}
         except Exception as e:
             results["disk_error"] = str(e)
+            
+        try:
+            import os
+            db_path = self.db_path
+            storage: Dict[str, Any] = {"db_path": db_path}
+            try:
+                if db_path and db_path not in (":memory:",) and os.path.exists(db_path):
+                    size_bytes = os.path.getsize(db_path)
+                    storage["db_size_mb"] = round(size_bytes / 1024 / 1024, 3)
+            except Exception:
+                # size is best-effort; ignore errors
+                pass
+            results["storage"] = storage
+        except Exception:
+            # Entire storage section is optional
+            pass
         
         # Basic counts using SQLAlchemy ORM
         session = self.db.get_session()

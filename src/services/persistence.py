@@ -1,8 +1,8 @@
 from __future__ import annotations
-from typing import Optional, Any, Dict, List
+from typing import Optional, Any, Dict, List, cast
 from datetime import datetime
 from sqlalchemy.orm import Session
-from sqlalchemy import and_, or_, func, text
+from sqlalchemy import and_, func
 from ..db.connection import Database
 from ..db.models import Channel, Message, HabitDailyScore, HabitMessageScore, GuildSetting
 
@@ -15,7 +15,7 @@ class PersistenceService:
         session: Session = self.db.get_session()
         try:
             channel = session.query(Channel).filter(
-                and_(Channel.discord_channel_id == str(discord_channel_id), Channel.active == True)
+                and_(Channel.discord_channel_id == str(discord_channel_id), Channel.active.is_(True))
             ).first()
             return channel is not None
         finally:
@@ -29,7 +29,7 @@ class PersistenceService:
         """
         session: Session = self.db.get_session()
         try:
-            rows = session.query(Channel.discord_channel_id).filter(Channel.active == True).all()
+            rows = session.query(Channel.discord_channel_id).filter(Channel.active.is_(True)).all()
             ids: list[int] = []
             for (cid_str,) in rows:
                 try:
@@ -107,12 +107,12 @@ class PersistenceService:
             ).first()
 
             if message:
-                message.is_habit_candidate = True
-                message.parsed_at = func.current_timestamp()
-                message.raw_bracket_count = raw_bracket_count
-                message.filled_bracket_count = filled_bracket_count
-                message.parse_confidence = confidence
-                message.extracted_date = extracted_date
+                setattr(message, "is_habit_candidate", True)
+                setattr(message, "parsed_at", func.current_timestamp())
+                setattr(message, "raw_bracket_count", int(raw_bracket_count))
+                setattr(message, "filled_bracket_count", int(filled_bracket_count))
+                setattr(message, "parse_confidence", float(confidence))
+                setattr(message, "extracted_date", extracted_date)
                 session.commit()
         finally:
             session.close()
@@ -120,7 +120,7 @@ class PersistenceService:
     def insert_or_replace_message_score(
         self,
         discord_message_id: int,
-        user_id: int,
+        user_id: int | str,
         date: str,
         channel_discord_id: int,
         raw_ratio: float,
@@ -152,9 +152,9 @@ class PersistenceService:
 
             if existing_score:
                 # Update existing
-                existing_score.raw_ratio = raw_ratio
-                existing_score.filled_bracket_count = filled
-                existing_score.total_bracket_count = total
+                setattr(existing_score, "raw_ratio", float(raw_ratio))
+                setattr(existing_score, "filled_bracket_count", int(filled))
+                setattr(existing_score, "total_bracket_count", int(total))
             else:
                 # Create new
                 score = HabitMessageScore(
@@ -162,9 +162,9 @@ class PersistenceService:
                     user_id=str(user_id),
                     date=date,
                     channel_id=channel.id,
-                    raw_ratio=raw_ratio,
-                    filled_bracket_count=filled,
-                    total_bracket_count=total
+                    raw_ratio=float(raw_ratio),
+                    filled_bracket_count=int(filled),
+                    total_bracket_count=int(total)
                 )
                 session.add(score)
 
@@ -196,10 +196,11 @@ class PersistenceService:
             # Recompute from message scores
             if date:
                 # Single date
-                result = session.query(
+                raw_ratio_col = getattr(HabitMessageScore, "raw_ratio")  # type: ignore[attr-defined]
+                result = cast(List[Any], session.query(
                     HabitMessageScore.user_id,
                     HabitMessageScore.date,
-                    func.sum(HabitMessageScore.raw_ratio).label('raw_score_sum'),
+                    func.sum(raw_ratio_col).label('raw_score_sum'),
                     func.count(HabitMessageScore.id).label('messages_count')
                 ).filter(
                     and_(
@@ -209,40 +210,41 @@ class PersistenceService:
                 ).group_by(
                     HabitMessageScore.user_id,
                     HabitMessageScore.date
-                ).all()
+                ).all())
 
                 for row in result:
                     daily_score = HabitDailyScore(
-                        user_id=row.user_id,
-                        date=row.date,
+                        user_id=str(getattr(row, 'user_id')),
+                        date=str(getattr(row, 'date')),
                         channel_id=channel.id,
-                        raw_score_sum=row.raw_score_sum or 0.0,
+                        raw_score_sum=float(getattr(row, 'raw_score_sum') or 0.0),
                         normalized_score=0.0,
-                        messages_count=row.messages_count or 0
+                        messages_count=int(getattr(row, 'messages_count') or 0)
                     )
                     session.add(daily_score)
             else:
                 # All dates
-                result = session.query(
+                raw_ratio_col2 = getattr(HabitMessageScore, "raw_ratio")  # type: ignore[attr-defined]
+                result = cast(List[Any], session.query(
                     HabitMessageScore.user_id,
                     HabitMessageScore.date,
-                    func.sum(HabitMessageScore.raw_ratio).label('raw_score_sum'),
+                    func.sum(raw_ratio_col2).label('raw_score_sum'),
                     func.count(HabitMessageScore.id).label('messages_count')
                 ).filter(
                     HabitMessageScore.channel_id == channel.id
                 ).group_by(
                     HabitMessageScore.user_id,
                     HabitMessageScore.date
-                ).all()
+                ).all())
 
                 for row in result:
                     daily_score = HabitDailyScore(
-                        user_id=row.user_id,
-                        date=row.date,
+                        user_id=str(getattr(row, 'user_id')),
+                        date=str(getattr(row, 'date')),
                         channel_id=channel.id,
-                        raw_score_sum=row.raw_score_sum or 0.0,
+                        raw_score_sum=float(getattr(row, 'raw_score_sum') or 0.0),
                         normalized_score=0.0,
-                        messages_count=row.messages_count or 0
+                        messages_count=int(getattr(row, 'messages_count') or 0)
                     )
                     session.add(daily_score)
 
@@ -259,13 +261,13 @@ class PersistenceService:
             ).first()
 
             if message:
-                message.content = new_content
-                message.is_habit_candidate = False
-                message.parsed_at = None
-                message.raw_bracket_count = None
-                message.filled_bracket_count = None
-                message.parse_confidence = None
-                message.extracted_date = None
+                setattr(message, "content", new_content)
+                setattr(message, "is_habit_candidate", False)
+                setattr(message, "parsed_at", None)
+                setattr(message, "raw_bracket_count", None)
+                setattr(message, "filled_bracket_count", None)
+                setattr(message, "parse_confidence", None)
+                setattr(message, "extracted_date", None)
                 session.commit()
         finally:
             session.close()
@@ -318,7 +320,7 @@ class PersistenceService:
                 GuildSetting.guild_id == str(guild_id)
             ).first()
 
-            return setting.report_style if setting else "style1"
+            return cast(str, setting.report_style) if setting else "style1"
         finally:
             session.close()
 
@@ -331,7 +333,7 @@ class PersistenceService:
             ).first()
 
             if setting:
-                setting.report_style = style
+                setattr(setting, "report_style", style)
             else:
                 setting = GuildSetting(
                     guild_id=str(guild_id),
@@ -364,8 +366,9 @@ class PersistenceService:
             ).first()
 
             if existing:
-                existing.raw_score_sum += delta
-                existing.last_updated = func.current_timestamp()
+                current = float(getattr(existing, "raw_score_sum", 0.0))
+                setattr(existing, "raw_score_sum", current + float(delta))
+                setattr(existing, "last_updated", func.current_timestamp())
             else:
                 score = HabitDailyScore(
                     user_id=str(user_id),
@@ -401,8 +404,10 @@ class PersistenceService:
             ).first()
 
             if score:
-                score.raw_score_sum = max(0.0, score.raw_score_sum - delta)
-                score.last_updated = func.current_timestamp()
+                current_val = float(getattr(score, "raw_score_sum") or 0.0)
+                new_val = max(0.0, current_val - float(delta))
+                setattr(score, "raw_score_sum", new_val)
+                setattr(score, "last_updated", func.current_timestamp())
                 session.commit()
         finally:
             session.close()
@@ -425,8 +430,14 @@ class PersistenceService:
                 )
             ).order_by(HabitDailyScore.date.desc()).limit(30).all()
 
-            days_data = [{"date": s.date, "raw_score": s.raw_score_sum, "messages": s.messages_count} for s in scores]
-            total = sum(s.raw_score_sum for s in scores)
+            days_data: List[Dict[str, Any]] = []
+            for s in scores:
+                days_data.append({
+                    "date": str(getattr(s, "date")),
+                    "raw_score": float(getattr(s, "raw_score_sum") or 0.0),
+                    "messages": int(getattr(s, "messages_count") or 0),
+                })
+            total = float(sum(float(getattr(s, "raw_score_sum") or 0.0) for s in scores))
 
             return {
                 "days": days_data,
@@ -448,20 +459,18 @@ class PersistenceService:
             if not channel:
                 return 0, []
 
-            # Find non-ISO dates (this requires raw SQL for complex string operations)
-            # We'll use a hybrid approach
-            scores_to_delete = []
-            deleted_dates = []
+            # Find non-ISO dates (hybrid approach via Python validation)
+            scores_to_delete: List[HabitDailyScore] = []  # type: ignore[name-defined]
+            deleted_dates: List[str] = []
 
             scores = session.query(HabitDailyScore).filter(
                 HabitDailyScore.channel_id == channel.id
             ).all()
 
             for score in scores:
-                date_str = score.date
-                if not (isinstance(date_str, str) and len(date_str) == 10 and
-                       date_str[4] == '-' and date_str[7] == '-'):
-                    scores_to_delete.append(score)
+                date_str = str(getattr(score, "date"))
+                if not (len(date_str) == 10 and date_str[4] == '-' and date_str[7] == '-'):
+                    scores_to_delete.append(score)  # type: ignore[arg-type]
                     deleted_dates.append(date_str)
 
             # Delete scores and related message scores
@@ -488,10 +497,11 @@ class PersistenceService:
                 HabitDailyScore.channel_id == channel.id
             ).all()
 
-            return [
-                score.date for score in scores
-                if not (isinstance(score.date, str) and len(score.date) == 10 and
-                       score.date[4] == '-' and score.date[7] == '-')
-            ]
+            bad: List[str] = []
+            for score in scores:
+                date_str = str(getattr(score, "date"))
+                if not (len(date_str) == 10 and date_str[4] == '-' and date_str[7] == '-'):
+                    bad.append(date_str)
+            return bad
         finally:
             session.close()

@@ -1,11 +1,10 @@
 from __future__ import annotations
 from datetime import datetime
 from io import BytesIO
-from typing import List, Dict, Tuple, Any, cast
+from typing import List, Dict, Tuple, Any
 import pandas as pd
 import matplotlib.pyplot as plt
 from sqlalchemy.orm import Session
-from sqlalchemy import func, text
 from ..db.connection import Database
 from ..db.models import HabitDailyScore
 from ..core.config import AppConfig
@@ -21,30 +20,39 @@ class ReportingService:
         self.config = config
 
     def _fetch_raw_scores(self, days: int) -> List[Dict[str, Any]]:
-        """Return daily aggregate rows for the trailing window of `days`.
-
-        This returns raw database rows; subsequent normalization will perform
-        defensive sanitation (date & number repair) so we keep types loose here.
+        """Return daily aggregate rows for the last `days` distinct dates present.
         """
         session: Session = self.db.get_session()
         try:
-            # Calculate the date threshold
-            from datetime import date, timedelta
-            cutoff_date = date.today() - timedelta(days=days - 1)
+            # Fetch all rows ordered by date ascending
+            scores = (
+                session.query(HabitDailyScore)
+                .order_by(HabitDailyScore.date.asc())
+                .all()
+            )
 
-            # Query using SQLAlchemy ORM
-            scores = session.query(HabitDailyScore).filter(
-                func.date(HabitDailyScore.date) >= cutoff_date
-            ).order_by(HabitDailyScore.date.asc()).all()
+            # Determine the last N distinct dates
+            all_dates_sorted: List[str] = []
+            seen: set[str] = set()
+            for s in scores:
+                d = str(getattr(s, 'date'))
+                if d not in seen:
+                    seen.add(d)
+                    all_dates_sorted.append(d)
+            if days > 0:
+                keep_set = set(all_dates_sorted[-days:])
+            else:
+                keep_set = set(all_dates_sorted)
 
-            # Convert to dictionary format matching the original structure
+            # Convert to dictionary format, filtering by selected dates
             return [
                 {
                     'user_id': score.user_id,
                     'date': score.date,
-                    'raw_score_sum': score.raw_score_sum
+                    'raw_score_sum': float(getattr(score, 'raw_score_sum') or 0.0),
                 }
                 for score in scores
+                if str(getattr(score, 'date')) in keep_set
             ]
         finally:
             session.close()
@@ -138,32 +146,24 @@ class ReportingService:
             data.append(row)
         columns = ['User'] + all_dates + ['Total']
         df = pd.DataFrame(data, columns=columns)
-        # matplotlib types are not fully available to the analyzer; cast to Any when needed
-        figure_and_axis = cast(
-            Any,
-            plt.subplots(
-                figsize=(
-                    max(10, 1 + 1.2 * len(columns)),
-                    0.7 * len(df) + 1
-                )
+        mpl: Any = plt
+        figure, axis = mpl.subplots(
+            figsize=(
+                max(10, 1 + 1.2 * len(columns)),
+                0.7 * len(df) + 1
             )
-        )  # type: ignore
-        figure, axis = figure_and_axis  # type: ignore
+        )
         figure.patch.set_alpha(0.0)
         axis.set_facecolor('none')
         axis.axis('off')
-        # Convert DataFrame values and columns to plain Python lists to satisfy matplotlib typing
         cell_texts = df.values.tolist()
         column_labels = list(df.columns)
-        table = cast(
-            Any,
-            axis
-        ).table(
+        table = axis.table(
             cellText=cell_texts,
             colLabels=column_labels,
             loc='center',
             cellLoc='center'
-        )  # type: ignore
+        )
         table.auto_set_font_size(False)
         table.set_fontsize(11)
         table.scale(1.1, 1.2)
@@ -196,7 +196,7 @@ class ReportingService:
                 edge = (0.55, 0.45, 0.30, 0.5)
             else:  # fallback style1
                 return apply_style("style1")
-            # Iterate the table cells and apply visuals. Use typing.cast to Any to quiet the type checker.
+            # Iterate the table cells and apply visuals.
             table_any = table
             for (row_i, _col_j), cell in table_any.get_celld().items():
                 cell_any = cell
@@ -227,16 +227,13 @@ class ReportingService:
         apply_style(style)
         # Tight layout not to add padding (padding contributes white if not transparent)
         buf = BytesIO()
-        cast(
-            Any,
-            plt
-        ).savefig(
+        mpl.savefig(
             buf,
             format='png',
             bbox_inches='tight',
             dpi=180,
             transparent=True
-        )  # type: ignore
+        )
         buf.seek(0)
         plt.close(figure)
         human_dates = [
