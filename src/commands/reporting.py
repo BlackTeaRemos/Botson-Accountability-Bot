@@ -1,4 +1,5 @@
-"""Reporting-related slash commands (weekly reports and style settings)."""
+"""Reporting-related slash commands (weekly reports and style settings).
+"""
 
 from datetime import datetime
 import discord
@@ -17,8 +18,8 @@ def register_reporting_commands(
     channels: ChannelRegistrationService,
     config: AppConfig,
 ) -> None:
-    @bot.tree.command(name="weekly_report", description="Generate a weekly report image (normalized scores)")
-    async def weekly_report(interaction: discord.Interaction):
+    # ----- Internal implementations to allow reuse between top-level and grouped commands -----
+    async def _weekly_report_impl(interaction: discord.Interaction) -> None:
         try:
             guild_style = None
             if interaction.guild_id:
@@ -63,11 +64,8 @@ def register_reporting_commands(
                     await interaction.followup.send(f"Error generating report: {e}", ephemeral=True)
             except Exception:
                 print(f"[weekly_report] Failed to send error response: {e}")
-        # Reference the nested command so static analysis recognizes it is used via decorator
-        _ = weekly_report
 
-    @bot.tree.command(name="weekly_report_embed", description="Generate weekly report as an embed (no image)")
-    async def weekly_report_embed(interaction: discord.Interaction):
+    async def _weekly_embed_impl(interaction: discord.Interaction) -> None:
         try:
             channel_id = interaction.channel_id
             if channel_id is None:
@@ -131,11 +129,8 @@ def register_reporting_commands(
                 await interaction.response.send_message(f"Embed report error: {e}", ephemeral=True)
             else:
                 await interaction.followup.send(f"Embed report error: {e}", ephemeral=True)
-        # Mark used for static analysis (the decorator registers the function)
-        _ = weekly_report_embed
 
-    @bot.tree.command(name="set_report_style", description="Set weekly report style (style1..style4)")
-    async def set_report_style(interaction: discord.Interaction, style: str):
+    async def _set_report_style_impl(interaction: discord.Interaction, style: str) -> None:
         valid = {"style1","style2","style3","style4"}
         if style not in valid:
             await interaction.response.send_message(f"Invalid style. Choose one of: {', '.join(sorted(valid))}.", ephemeral=True)
@@ -145,11 +140,8 @@ def register_reporting_commands(
             return
         storage.set_guild_report_style(interaction.guild_id, style)
         await interaction.response.send_message(f"Report style set to {style}.", ephemeral=True)
-    # Mark used for static analysis
-    _ = set_report_style
 
-    @bot.tree.command(name="clear_week", description="Clear current week's daily scores for this channel")
-    async def clear_week(interaction: discord.Interaction):
+    async def _clear_week_impl(interaction: discord.Interaction) -> None:
         try:
             channel_id = interaction.channel_id
             if channel_id is None:
@@ -165,11 +157,8 @@ def register_reporting_commands(
                 await interaction.response.send_message(f"Clear failed: {e}", ephemeral=True)
             else:
                 await interaction.followup.send(f"Clear failed: {e}", ephemeral=True)
-        # Mark used for static analysis
-        _ = clear_week
 
-    @bot.tree.command(name="backfill", description="Backfill last 7 days of messages for this channel")
-    async def backfill(interaction: discord.Interaction):
+    async def _backfill_impl(interaction: discord.Interaction) -> None:
         try:
             await interaction.response.defer(ephemeral=True, thinking=True)
             channel_id = interaction.channel_id
@@ -190,5 +179,55 @@ def register_reporting_commands(
                 await interaction.response.send_message(f"Backfill failed: {e}", ephemeral=True)
             else:
                 await interaction.followup.send(f"Backfill failed: {e}", ephemeral=True)
-        # Mark used for static analysis
-        _ = backfill
+
+    # ----- New grouped commands under /report -----
+    from discord import app_commands
+
+    report_group = app_commands.Group(name="report", description="Reporting commands")
+
+    @report_group.command(name="weekly", description="Generate a weekly report image (normalized scores)")
+    async def report_weekly(interaction: discord.Interaction):
+        await _weekly_report_impl(interaction)
+
+    @report_group.command(name="embed", description="Generate weekly report as an embed (no image)")
+    async def report_embed(interaction: discord.Interaction):
+        await _weekly_embed_impl(interaction)
+
+    @report_group.command(name="clear_week", description="Clear current week's daily scores for this channel")
+    async def report_clear_week(interaction: discord.Interaction):
+        await _clear_week_impl(interaction)
+
+    @report_group.command(name="backfill", description="Backfill last 7 days of messages for this channel")
+    async def report_backfill(interaction: discord.Interaction):
+        await _backfill_impl(interaction)
+
+    # Subgroup: /report style set
+    style_group = app_commands.Group(name="style", description="Report style commands", parent=report_group)
+
+    from discord.app_commands import Choice
+
+    @style_group.command(name="set", description="Set weekly report style")
+    @app_commands.describe(style="Report style theme")
+    @app_commands.choices(
+        style=[
+            Choice(name="style1", value="style1"),
+            Choice(name="style2", value="style2"),
+            Choice(name="style3", value="style3"),
+            Choice(name="style4", value="style4"),
+        ]
+    )
+    async def report_style_set(interaction: discord.Interaction, style: str):
+        await _set_report_style_impl(interaction, style)
+
+    # Finally, add the group (and its subgroup) to the bot tree
+    bot.tree.add_command(report_group)
+
+    # Keep explicit references to subcommand callables to appease static analyzers
+    _registered_report_commands: dict[str, object] = {
+        "weekly": report_weekly,
+        "embed": report_embed,
+        "clear_week": report_clear_week,
+        "backfill": report_backfill,
+        "style_set": report_style_set,
+    }
+    _ = _registered_report_commands
