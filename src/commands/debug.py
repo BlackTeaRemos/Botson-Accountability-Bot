@@ -1,7 +1,8 @@
-"""Debug and developer helper slash commands."""
+"""Debug and developer helper slash commands, grouped under /debug."""
 
 from typing import Any, Callable, Dict
 import discord
+from discord import app_commands
 from ..services.persistence import PersistenceService
 
 
@@ -10,7 +11,9 @@ def register_debug_commands(
     storage: PersistenceService,
     generate_random_user_recent: Callable[..., Dict[str, Any]],
 ) -> None:
-    @bot.tree.command(name="debug_add_score", description="DEBUG: Add raw score delta to user for a date")
+    debug_group = app_commands.Group(name="debug", description="Developer utilities")
+
+    @debug_group.command(name="add_score", description="Add raw score delta to user for a date")
     async def debug_add_score(interaction: discord.Interaction, user_id: str, date: str, delta: float):
         try:
             cid = interaction.channel_id
@@ -27,9 +30,8 @@ def register_debug_commands(
                 await interaction.response.send_message(f"Error: {e}", ephemeral=True)
             else:
                 await interaction.followup.send(f"Error: {e}", ephemeral=True)
-        _ = debug_add_score
 
-    @bot.tree.command(name="debug_remove_score", description="DEBUG: Remove raw score delta from user for a date")
+    @debug_group.command(name="remove_score", description="Remove raw score delta from user for a date")
     async def debug_remove_score(interaction: discord.Interaction, user_id: str, date: str, delta: float):
         try:
             cid = interaction.channel_id
@@ -46,9 +48,8 @@ def register_debug_commands(
                 await interaction.response.send_message(f"Error: {e}", ephemeral=True)
             else:
                 await interaction.followup.send(f"Error: {e}", ephemeral=True)
-        _ = debug_remove_score
 
-    @bot.tree.command(name="debug_user_info", description="DEBUG: Show recent daily stats for a user")
+    @debug_group.command(name="user_info", description="Show recent daily stats for a user")
     async def debug_user_info(interaction: discord.Interaction, user_id: str):
         try:
             cid = interaction.channel_id
@@ -81,9 +82,8 @@ def register_debug_commands(
                 await interaction.response.send_message(f"Error: {e}", ephemeral=True)
             else:
                 await interaction.followup.send(f"Error: {e}", ephemeral=True)
-        _ = debug_user_info
 
-    @bot.tree.command(name="debug_purge_bad_dates", description="DEBUG: Purge non-ISO date rows (drops malformed dates) for this channel")
+    @debug_group.command(name="purge_bad_dates", description="Purge non-ISO date rows for this channel")
     async def debug_purge_bad_dates(interaction: discord.Interaction):
         try:
             cid = interaction.channel_id
@@ -104,9 +104,8 @@ def register_debug_commands(
                 await interaction.response.send_message(f"Purge failed: {e}", ephemeral=True)
             else:
                 await interaction.followup.send(f"Purge failed: {e}", ephemeral=True)
-        _ = debug_purge_bad_dates
 
-    @bot.tree.command(name="debug_generate_user", description="DEBUG: Generate clustered test user messages for this channel")
+    @debug_group.command(name="generate_user", description="Generate clustered test user messages for this channel")
     async def debug_generate_user(
         interaction: discord.Interaction,
         user_id: str | None = None,
@@ -139,4 +138,16 @@ def register_debug_commands(
                 await interaction.response.send_message(f"Error generating user: {e}", ephemeral=True)
             else:
                 await interaction.followup.send(f"Error generating user: {e}", ephemeral=True)
-        _ = debug_generate_user
+
+    # Register group on bot tree
+    bot.tree.add_command(debug_group)
+
+    # References for analyzers
+    _registered_debug_commands: dict[str, object] = {
+        "add_score": debug_add_score,
+        "remove_score": debug_remove_score,
+        "user_info": debug_user_info,
+        "purge_bad_dates": debug_purge_bad_dates,
+        "generate_user": debug_generate_user,
+    }
+    _ = _registered_debug_commands

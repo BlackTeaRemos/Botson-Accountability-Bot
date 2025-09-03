@@ -5,6 +5,7 @@ Commands are restricted to users with Manage Guild permission. Token keys are bl
 
 from typing import Any, Awaitable, Callable
 import discord
+from discord import app_commands
 
 from ..services.settings import SettingsService, BLOCKED_KEYS
 
@@ -21,6 +22,7 @@ def register_config_commands(
 ) -> None:
     # Autocomplete helper for keys (available + existing)
     from typing import List as _List, Any as _Any
+
     async def key_autocomplete(interaction: discord.Interaction, current: str) -> _List[_Any]:
         try:
             available = settings.list_available_keys()
@@ -30,13 +32,17 @@ def register_config_commands(
             blocked = {b.lower() for b in BLOCKED_KEYS}
             filtered = [k for k in pool if cur in k.lower() and k.lower() not in blocked]
             results: list[Any] = [
-                discord.app_commands.Choice(name=k, value=k)  # type: ignore[attr-defined]
+                app_commands.Choice(name=k, value=k)  # type: ignore[attr-defined]
                 for k in filtered[:20]
             ]
             return results
         except Exception:
             return []
-    @bot.tree.command(name="config_list", description="List configurable keys (DB)")
+
+    # Define the /config group
+    config_group = app_commands.Group(name="config", description="Manage bot configuration")
+
+    @config_group.command(name="list", description="List keys that are currently set in DB")
     async def config_list(interaction: discord.Interaction):
         try:
             if not interaction.guild_id:
@@ -57,11 +63,32 @@ def register_config_commands(
                 await interaction.response.send_message(f"Error: {e}", ephemeral=True)
             else:
                 await interaction.followup.send(f"Error: {e}", ephemeral=True)
-        _ = config_list
 
-    @bot.tree.command(name="config_get", description="Get a setting value (DB)")
-    @discord.app_commands.describe(key="Setting key")
-    @discord.app_commands.autocomplete(key=key_autocomplete)
+    @config_group.command(name="available", description="List available configuration keys")
+    async def config_available(interaction: discord.Interaction):
+        try:
+            if not interaction.guild_id:
+                await interaction.response.send_message("Use this in a guild.", ephemeral=True)
+                return
+            if not _has_manage_guild(interaction):
+                await interaction.response.send_message("Missing Manage Server permission.", ephemeral=True)
+                return
+            items = settings.get_available_with_meta()
+            if not items:
+                await interaction.response.send_message("No settings are available.", ephemeral=True)
+                return
+            lines = [f"{it['key']} ({it['type']}): {it['description']}".strip() for it in items]
+            body = "\n".join(lines)
+            await interaction.response.send_message(body[:1900], ephemeral=True)
+        except Exception as e:
+            if not interaction.response.is_done():
+                await interaction.response.send_message(f"Error: {e}", ephemeral=True)
+            else:
+                await interaction.followup.send(f"Error: {e}", ephemeral=True)
+
+    @config_group.command(name="get", description="Get a setting value (DB)")
+    @app_commands.describe(key="Setting key")
+    @app_commands.autocomplete(key=key_autocomplete)
     async def config_get(interaction: discord.Interaction, key: str):
         try:
             if not interaction.guild_id:
@@ -88,11 +115,10 @@ def register_config_commands(
                 await interaction.response.send_message(f"Error: {e}", ephemeral=True)
             else:
                 await interaction.followup.send(f"Error: {e}", ephemeral=True)
-        _ = config_get
 
-    @bot.tree.command(name="config_set", description="Set a setting value (JSON or primitive)")
-    @discord.app_commands.describe(key="Setting key", value="JSON or primitive value")
-    @discord.app_commands.autocomplete(key=key_autocomplete)
+    @config_group.command(name="set", description="Set a setting value (JSON or primitive)")
+    @app_commands.describe(key="Setting key", value="JSON or primitive value")
+    @app_commands.autocomplete(key=key_autocomplete)
     async def config_set(interaction: discord.Interaction, key: str, value: str):
         try:
             if not interaction.guild_id:
@@ -130,11 +156,10 @@ def register_config_commands(
                 await interaction.response.send_message(f"Error: {e}", ephemeral=True)
             else:
                 await interaction.followup.send(f"Error: {e}", ephemeral=True)
-        _ = config_set
 
-    @bot.tree.command(name="config_delete", description="Delete a setting")
-    @discord.app_commands.describe(key="Setting key")
-    @discord.app_commands.autocomplete(key=key_autocomplete)
+    @config_group.command(name="delete", description="Delete a setting")
+    @app_commands.describe(key="Setting key")
+    @app_commands.autocomplete(key=key_autocomplete)
     async def config_delete(interaction: discord.Interaction, key: str):
         try:
             if not interaction.guild_id:
@@ -156,28 +181,16 @@ def register_config_commands(
                 await interaction.response.send_message(f"Error: {e}", ephemeral=True)
             else:
                 await interaction.followup.send(f"Error: {e}", ephemeral=True)
-        _ = config_delete
 
-    @bot.tree.command(name="config_available", description="List available configuration keys")
-    async def config_available(interaction: discord.Interaction):
-        try:
-            if not interaction.guild_id:
-                await interaction.response.send_message("Use this in a guild.", ephemeral=True)
-                return
-            if not _has_manage_guild(interaction):
-                await interaction.response.send_message("Missing Manage Server permission.", ephemeral=True)
-                return
-            items = settings.get_available_with_meta()
-            if not items:
-                await interaction.response.send_message("No settings are available.", ephemeral=True)
-                return
-            lines = [f"{it['key']} ({it['type']}): {it['description']}".strip() for it in items]
-            body = "\n".join(lines)
-            await interaction.response.send_message(body[:1900], ephemeral=True)
-        except Exception as e:
-            if not interaction.response.is_done():
-                await interaction.response.send_message(f"Error: {e}", ephemeral=True)
-            else:
-                await interaction.followup.send(f"Error: {e}", ephemeral=True)
-        _ = config_available
+    bot.tree.add_command(config_group)
+
+    # Keep explicit references for static analyzers
+    _registered_config_commands: dict[str, object] = {
+        "list": config_list,
+        "available": config_available,
+        "get": config_get,
+        "set": config_set,
+        "delete": config_delete,
+    }
+    _ = _registered_config_commands
 
