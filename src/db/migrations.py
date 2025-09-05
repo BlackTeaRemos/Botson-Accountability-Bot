@@ -7,7 +7,7 @@ from .models import Base
 
 # Use metadata from models
 metadata = Base.metadata
-def generate_migration_sql() -> str:
+def GenerateMigrationSql() -> str:
     """Generate SQL DDL statements from SQLAlchemy metadata.
     
     Returns:
@@ -38,12 +38,12 @@ def generate_migration_sql() -> str:
 MIGRATIONS: list[tuple[int, str]] = [
     (
         1,
-        generate_migration_sql(),
+        GenerateMigrationSql(),
     ),
 ]
 
 
-def ensure_migrated(database_path: str) -> None:
+def EnsureMigrated(database_path: str) -> None:
     """Ensure the database is migrated to the latest schema version.
 
     Connects to the database, checks the current schema version, and applies

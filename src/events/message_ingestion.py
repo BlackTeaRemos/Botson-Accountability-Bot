@@ -38,7 +38,7 @@ def register(bus: EventBus, storage: Storage, habit_parser: HabitParserType) -> 
                 created_at=event.payload["created_at"],
                 content=event.payload["content"],
             )
-        parsed = habit_parser.parse_message(
+        parsed = habit_parser.ParseMessage(
             event.payload["content"],
             datetime.fromisoformat(event.payload["created_at"].replace('Z', '')),
         )
@@ -64,5 +64,5 @@ def register(bus: EventBus, storage: Storage, habit_parser: HabitParserType) -> 
                 date=parsed["extracted_date"]
             )
 
-    bus.subscribe("MessageReceived", handle_message)
-    bus.subscribe("MessageEdited", handle_message)
+    bus.Subscribe("MessageReceived", handle_message)
+    bus.Subscribe("MessageEdited", handle_message)

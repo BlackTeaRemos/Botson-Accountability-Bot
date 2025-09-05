@@ -3,7 +3,7 @@ import tempfile
 import shutil
 import pytest
 
-from src.db.migrations import ensure_migrated
+from src.db.migrations import EnsureMigrated
 from src.db.connection import Database
 
 @pytest.fixture()
@@ -24,8 +24,27 @@ def temp_db_path(tmp_path_factory: pytest.TempPathFactory):
 @pytest.fixture()
 def db(temp_db_path: str):
     # Run migrations and return Database instance
-    ensure_migrated(temp_db_path)
+    EnsureMigrated(temp_db_path)
     database = Database(temp_db_path)
     # Ensure ORM create_all is idempotent
-    database.create_tables()
+    database.CreateTables()
     return database
+
+
+@pytest.fixture()  # type: ignore
+def storage(db: Database) -> PersistenceService:
+    """Persistence service bound to the temporary test database."""
+    return PersistenceService(db)
+
+
+@pytest.fixture()  # type: ignore
+def seed_channel(db: Database) -> int:
+    """Insert and return a test channel discord id that is active."""
+    session: Session = db.GetSession()
+    try:
+        if not session.query(Channel).filter(Channel.discord_channel_id == "12345").first():
+            session.add(Channel(discord_channel_id="12345", registered_by="tester", active=True))
+            session.commit()
+        return 12345
+    finally:
+        session.close()

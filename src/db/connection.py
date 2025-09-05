@@ -18,7 +18,7 @@ class Database:
             path: Path to SQLite database file.
         """
         # Configure SQLite with WAL mode and foreign keys
-        self._engine = create_engine(
+        self._engine = create_engine(  # SQLAlchemy engine instance
             f"sqlite:///{path}",
             connect_args={
                 "check_same_thread": False,  # Allow multi-threading
@@ -27,41 +27,29 @@ class Database:
             echo=False
         )
 
-        self._session_factory = sessionmaker(
+        self._session_factory = sessionmaker(  # Session factory for creating sessions
             bind=self._engine,
             autocommit=False,
             autoflush=False,
             expire_on_commit=False
         )
 
-        self.metadata = metadata
-        self.Base = Base
+        self.metadata = metadata  # Database metadata
+        self.Base = Base  # Base class for models
 
-        # Ensure required PRAGMAs are enabled on every new DB-API connection
-        @event.listens_for(self._engine, "connect")
-        def _set_sqlite_pragma(dbapi_connection, connection_record):  # type: ignore[no-redef]
-            try:
-                cursor = dbapi_connection.cursor()
-                cursor.execute("PRAGMA journal_mode=WAL")
-                cursor.execute("PRAGMA foreign_keys=ON")
-                cursor.close()
-            except Exception:
-                # Best-effort; do not block startup on PRAGMA failures
-                pass
-
-    def _setup_connection(self) -> None:
+    def _SetupConnection(self) -> None:
         """Set up SQLite pragmas for the database connection."""
         with self._engine.connect() as conn:
             conn.execute(text("PRAGMA journal_mode=WAL"))
             conn.execute(text("PRAGMA foreign_keys=ON"))
             conn.commit()
 
-    def create_tables(self) -> None:
+    def CreateTables(self) -> None:
         """Create all tables defined in metadata if they don't exist."""
-        self._setup_connection()
+        self._SetupConnection()
         self.Base.metadata.create_all(bind=self._engine)
 
-    def get_session(self) -> Session:
+    def GetSession(self) -> Session:
         """Get a new database session.
 
         Returns:
@@ -69,7 +57,7 @@ class Database:
         """
         return self._session_factory()
 
-    def execute_raw(self, sql: str, params: Tuple[object, ...] = ()) -> None:
+    def ExecuteRaw(self, sql: str, params: Mapping[str, Any] | Sequence[Any] | None = None) -> None:
         """Execute raw SQL
 
         Args:
@@ -80,7 +68,7 @@ class Database:
             conn.execute(text(sql), params)
             conn.commit()
 
-    def query_raw(self, sql: str, params: Tuple[object, ...] = ()):
+    def QueryRaw(self, sql: str, params: Mapping[str, Any] | Sequence[Any] | None = None) -> List[tuple[Any, ...]]:
         """Execute raw SQL query and return results.
 
         Args:

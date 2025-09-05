@@ -26,7 +26,7 @@ class ReportingService:
         This returns raw database rows; subsequent normalization will perform
         defensive sanitation (date & number repair) so we keep types loose here.
         """
-        session: Session = self.db.get_session()
+        session: Session = self.db.GetSession()
         try:
             # Calculate the date threshold
             from datetime import date, timedelta

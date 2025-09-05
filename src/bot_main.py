@@ -7,7 +7,7 @@ from typing import Any, Dict, List
 import random
 from datetime import timedelta
 
-from .core.config import load_config
+from .core.config import load_config, AppConfig
 from .db.migrations import ensure_migrated
 from .db.connection import Database
 from .core.events import EventBus
@@ -26,76 +26,210 @@ intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 
-config = load_config()
-ensure_migrated(config.database_path)
+config = LoadConfig()  # type: ignore
+EnsureMigrated(config.database_path)  # type: ignore
 
-db = Database(config.database_path)
+db = Database(config.database_path)  # type: ignore
 bus = EventBus()
 
-diagnostics = DiagnosticsService(bus, db, config.database_path)
-channels = ChannelRegistrationService(bus, db, config.backfill_default_days)
+diagnostics = DiagnosticsService(bus, db, config.database_path)  # type: ignore
+channels = ChannelRegistrationService(bus, db, config.backfill_default_days)  # type: ignore
 habit_parser = HabitParser(bus)
 storage = PersistenceService(db)
 reporting = ReportingService(db, config)
+settings = SettingsService(db)
 report_scheduler: object | None = None
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 
+def _compute_overridden_config(base: AppConfig) -> AppConfig:
+    """Overlay DB settings onto the base config (excluding token)."""
+    from dataclasses import replace
+    # Gather overrides
+    tz = settings.get("timezone")
+    use_db_only = settings.get("use_db_only")
+    backfill_days = settings.get("backfill_default_days")
+    guild_id = settings.get("guild_id")
+    daily_goal = settings.get("daily_goal_tasks")
+    sched_enabled = settings.get("scheduled_reports_enabled")
+    sched_interval = settings.get("scheduled_report_interval_minutes")
+    sched_channels = settings.get("scheduled_report_channel_ids")
+
+    def as_int(val: object, default: int) -> int:
+        try:
+            if isinstance(val, bool):
+                return int(val)
+            if isinstance(val, (int, float)):
+                return int(val)
+            if isinstance(val, str):
+                return int(val.strip())
+        except Exception:
+            return default
+        return default
+
+    def as_bool(val: object, default: bool) -> bool:
+        if isinstance(val, bool):
+            return val
+        if isinstance(val, (int, float)):
+            return bool(val)
+        if isinstance(val, str):
+            return val.strip().lower() in ("1", "true", "yes", "on")
+        return default
+
+    from typing import Any, Iterable, cast
+    def as_tuple_ints(val: Any, default: tuple[int, ...]) -> tuple[int, ...]:
+        try:
+            if val is None:
+                return default
+            if isinstance(val, (list, tuple)):
+                out: list[int] = []
+                it: Iterable[Any] = cast(Iterable[Any], val)
+                for item in it:
+                    try:
+                        out.append(int(str(item)))
+                    except Exception:
+                        continue
+                return tuple(out)
+            if isinstance(val, str):
+                # accept CSV string
+                parts = [p.strip() for p in val.split(',') if p.strip()]
+                return tuple(int(p) for p in parts if p.isdigit())
+        except Exception:
+            return default
+        return default
+
+    cfg = replace(
+        base,
+        timezone=str(tz) if isinstance(tz, str) and tz else base.timezone,
+        use_db_only=as_bool(use_db_only, base.use_db_only),
+        backfill_default_days=as_int(backfill_days, base.backfill_default_days),
+        guild_id=as_int(guild_id, base.guild_id or 0) or None,
+        daily_goal_tasks=as_int(daily_goal, base.daily_goal_tasks),
+        scheduled_reports_enabled=as_bool(sched_enabled, base.scheduled_reports_enabled),
+        scheduled_report_interval_minutes=as_int(sched_interval, base.scheduled_report_interval_minutes),
+        scheduled_report_channel_ids=as_tuple_ints(sched_channels, base.scheduled_report_channel_ids),
+    )
+    return cfg
+
+
+async def apply_runtime_settings() -> None:
+    """Reload config overrides from DB and apply to running services."""
+    global config, reporting, report_scheduler
+    new_config = _compute_overridden_config(config)
+    config = new_config
+    # Propagate to services
+    reporting.config = new_config
+    # Restart scheduler according to new settings
+    try:
+        if new_config.scheduled_reports_enabled:
+            if report_scheduler is None:
+                from .services.scheduler import ReportScheduler  # type: ignore
+                report_scheduler = ReportScheduler(bot, storage, reporting, new_config)  # type: ignore[assignment]
+                report_scheduler.start()  # type: ignore[attr-defined]
+            else:
+                # Replace config inside scheduler
+                try:
+                    report_scheduler.config = new_config  # type: ignore[attr-defined]
+                except Exception:
+                    pass
+        else:
+            if report_scheduler is not None:
+                try:
+                    await report_scheduler.stop()  # type: ignore[attr-defined]
+                except Exception:
+                    pass
+                report_scheduler = None
+    except Exception as e:
+        print(f"[Config] Failed to apply scheduler settings: {e}")
+
+
 @bot.event
 async def on_ready() -> None:
     """Called when the bot has successfully connected to Discord."""
-    await bus.emit("BotStarted", {"user": str(bot.user)}, {})
+    await bus.Emit("BotStarted", {"user": str(bot.user)}, {})
     await diagnostics.run_startup()
     # Register slash commands from modules so they exist before syncing.
-    register_bot_commands()
+    RegisterBotCommands()
     try:
         # Always perform global sync so commands appear in every server the bot joins.
         global_synced = await bot.tree.sync()
         print(f"[Commands] Global sync -> {len(global_synced)} commands (global propagation may take up to ~1 hour)")
         # Optionally also push a guild-specific sync for immediate availability in a primary guild.
-        if config.guild_id:
-            guild = discord.Object(id=config.guild_id)
+        if config.guild_id:  # type: ignore
+            guild = discord.Object(id=config.guild_id)  # type: ignore
             guild_synced = await bot.tree.sync(guild=guild)
-            print(f"[Commands] Guild sync ({config.guild_id}) -> {len(guild_synced)} commands (immediate)")
+            print(f"[Commands] Guild sync ({config.guild_id}) -> {len(guild_synced)} commands (immediate)")  # type: ignore
     except Exception as e:
         print(f"[Commands] Sync failed: {e}")
+    # Apply any DB-backed overrides before starting scheduler
+    try:
+        await apply_runtime_settings()
+    except Exception as e:
+        print(f"[Config] Failed to apply runtime settings on startup: {e}")
     # Start scheduled reports if enabled
     global report_scheduler
     import os
     raw_env = os.getenv('SCHEDULED_REPORTS_ENABLED')
-    print(f"[Scheduler] Enabled setting: {config.scheduled_reports_enabled}; env(SCHEDULED_REPORTS_ENABLED)={raw_env}")
-    if config.scheduled_reports_enabled:
+    print(f"[Scheduler] Enabled setting: {config.scheduled_reports_enabled}; env(SCHEDULED_REPORTS_ENABLED)={raw_env}")  # type: ignore
+    if config.scheduled_reports_enabled:  # type: ignore
         if report_scheduler is None:
             # Lazy import to avoid optional dependency/type-resolution noise
             from .services.scheduler import ReportScheduler  # type: ignore
             report_scheduler = ReportScheduler(bot, storage, reporting, config)  # type: ignore[assignment]
             report_scheduler.start()  # type: ignore[attr-defined]
             print(
-                f"[Scheduler] Started (interval={config.scheduled_report_interval_minutes}m, "
-                f"channels={list(config.scheduled_report_channel_ids) if config.scheduled_report_channel_ids else 'all-registered'})"
+                f"[Scheduler] Started (interval={config.scheduled_report_interval_minutes}m, "  # type: ignore
+                f"channels={list(config.scheduled_report_channel_ids) if config.scheduled_report_channel_ids else 'all-registered'})"  # type: ignore
             )
     else:
         print("[Scheduler] Disabled by configuration; not started.")
 
 
-def register_bot_commands() -> None:
+def RegisterBotCommands() -> None:
     """Register slash commands from external modules and inline diagnostics command.
+
+    This function registers all Discord slash commands by calling the registration
+    functions from the command modules and adding an inline diagnostics command.
+
+    The registered commands include:
+    - Reporting commands for habit tracking reports
+    - Debug commands for testing and maintenance
+    - Channel commands for channel management
+    - Config commands for bot configuration
+    - Inline diagnostics command for system status
+
+    Args:
+        None
+
+    Returns:
+        None
+
+    Example:
+        RegisterBotCommands()  # Registers all bot commands
     """
     # Module-registered commands
     reporting_commands.register_reporting_commands(bot, storage, reporting, channels, config)
     debug_commands.register_debug_commands(bot, storage, generate_random_user_recent)
     channel_commands.register_channel_commands(bot, channels)
+    config_commands.register_config_commands(bot, settings, apply_runtime_settings)
 
     # Inline diagnostics command
     @bot.tree.command(name="diagnostics", description="Show basic diagnostics (db, counts, disk)")
     async def diagnostics_command(interaction: discord.Interaction):
         try:
             snapshot = diagnostics.collect()
-            diagnostics_text = command_utils.json_dumps_compact(snapshot)
-            if len(diagnostics_text) > 1800:
-                diagnostics_text = diagnostics_text[:1800] + "... (truncated)"
-            await interaction.response.send_message(f"```json\n{diagnostics_text}\n```", ephemeral=True)
+            # Prefer a readable summary; if too long, fall back to compact JSON
+            readable = command_utils.format_diagnostics_markdown(snapshot)
+            content: str
+            if len(readable) <= 1900:
+                content = f"```\n{readable}\n```"
+            else:
+                json_text = command_utils.json_dumps_compact(snapshot)
+                if len(json_text) > 1900:
+                    json_text = json_text[:1900] + "... (truncated)"
+                content = f"```json\n{json_text}\n```"
+            await interaction.response.send_message(content, ephemeral=True)
         except Exception as e:
             if not interaction.response.is_done():
                 await interaction.response.send_message(f"Diagnostics error: {e}", ephemeral=True)
@@ -110,7 +244,7 @@ async def on_message(message: discord.Message) -> None:
     """Called when a message is received. Ignores bot messages and emits an event."""
     if message.author.bot:
         return
-    await bus.emit("MessageReceived", {
+    await bus.Emit("MessageReceived", {
         "discord_message_id": message.id,
         "channel_id": message.channel.id,
         "author_id": message.author.id,
@@ -131,7 +265,7 @@ async def on_message_edit(before: discord.Message, after: discord.Message) -> No
         storage.update_message_content(after.id, after.content)
     except Exception as e:
         print(f"[Edit] Failed to update content for {after.id}: {e}")
-    await bus.emit("MessageEdited", {
+    await bus.Emit("MessageEdited", {
         "discord_message_id": after.id,
         "channel_id": after.channel.id,
         "author_id": after.author.id,
@@ -143,9 +277,21 @@ async def on_message_edit(before: discord.Message, after: discord.Message) -> No
     # No command registration here — commands are registered at startup.
 
 
-def run():
-    """Main entry to launch the Discord bot after environment validation."""
-    token = config.discord_token
+def Run():
+    """Main entry to launch the Discord bot after environment validation.
+
+    This function performs the following steps:
+    1. Validates the Discord token from configuration
+    2. Registers event handlers for message ingestion
+    3. Starts the Discord bot with the validated token
+
+    Raises:
+        SystemExit: If the Discord token is not properly configured
+
+    Example:
+        Run()  # Launches the bot if token is valid
+    """
+    token = config.discord_token  # type: ignore
     if not token or token == "" or token.lower() == "changeme":
         raise SystemExit("DISCORD_TOKEN not set in environment")
 
@@ -162,7 +308,7 @@ def run():
     bot.run(token)
 
 
-def generate_random_user_recent(
+def GenerateRandomUserRecent(
     channel_discord_id: int,
     user_id: str | None = None,
     messages: int = 5,
@@ -261,7 +407,7 @@ def generate_random_user_recent(
 
     return {"user_id": user_id, "messages": generated, "written": True}
 
-def json_dumps_compact(data: Any) -> str:
+def JsonDumpsCompact(data: Any) -> str:
     """Serialize data to deterministic compact JSON (stable key order).
 
     Args:
@@ -274,4 +420,4 @@ def json_dumps_compact(data: Any) -> str:
     return json.dumps(data, separators=(",", ":"), sort_keys=True)
 
 if __name__ == "__main__":
-    run()
+    Run()

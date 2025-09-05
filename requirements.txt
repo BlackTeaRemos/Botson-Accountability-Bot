@@ -4,3 +4,5 @@ pandas
 matplotlib
 sqlalchemy
 pytest
+pytest-asyncio
+dynaconf

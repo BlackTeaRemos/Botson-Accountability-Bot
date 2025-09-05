@@ -5,13 +5,28 @@ import discord
 from ..services.persistence import PersistenceService
 
 
-def register_debug_commands(
+def RegisterDebugCommands(
     bot: Any,
     storage: PersistenceService,
     generate_random_user_recent: Callable[..., Dict[str, Any]],
 ) -> None:
-    @bot.tree.command(name="debug_add_score", description="DEBUG: Add raw score delta to user for a date")
-    async def debug_add_score(interaction: discord.Interaction, user_id: str, date: str, delta: float):
+    """Register debug and developer utility commands on the bot.
+
+    Args:
+        bot: The Discord bot instance.
+        storage: The persistence service instance.
+        generate_random_user_recent: Function to generate test user data.
+
+    Returns:
+        None
+
+    Example:
+        RegisterDebugCommands(bot, storage, generate_func)
+    """
+    debug_group = app_commands.Group(name="debug", description="Developer utilities")
+
+    @debug_group.command(name="add_score", description="Add raw score delta to user for a date")
+    async def DebugAddScore(interaction: discord.Interaction, user_id: str, date: str, delta: float):
         try:
             cid = interaction.channel_id
             if cid is None:
@@ -29,8 +44,8 @@ def register_debug_commands(
                 await interaction.followup.send(f"Error: {e}", ephemeral=True)
         _ = debug_add_score
 
-    @bot.tree.command(name="debug_remove_score", description="DEBUG: Remove raw score delta from user for a date")
-    async def debug_remove_score(interaction: discord.Interaction, user_id: str, date: str, delta: float):
+    @debug_group.command(name="remove_score", description="Remove raw score delta from user for a date")
+    async def DebugRemoveScore(interaction: discord.Interaction, user_id: str, date: str, delta: float):
         try:
             cid = interaction.channel_id
             if cid is None:
@@ -48,8 +63,8 @@ def register_debug_commands(
                 await interaction.followup.send(f"Error: {e}", ephemeral=True)
         _ = debug_remove_score
 
-    @bot.tree.command(name="debug_user_info", description="DEBUG: Show recent daily stats for a user")
-    async def debug_user_info(interaction: discord.Interaction, user_id: str):
+    @debug_group.command(name="user_info", description="Show recent daily stats for a user")
+    async def DebugUserInfo(interaction: discord.Interaction, user_id: str):
         try:
             cid = interaction.channel_id
             if cid is None:
@@ -83,8 +98,8 @@ def register_debug_commands(
                 await interaction.followup.send(f"Error: {e}", ephemeral=True)
         _ = debug_user_info
 
-    @bot.tree.command(name="debug_purge_bad_dates", description="DEBUG: Purge non-ISO date rows (drops malformed dates) for this channel")
-    async def debug_purge_bad_dates(interaction: discord.Interaction):
+    @debug_group.command(name="purge_bad_dates", description="Purge non-ISO date rows for this channel")
+    async def DebugPurgeBadDates(interaction: discord.Interaction):
         try:
             cid = interaction.channel_id
             if cid is None:
@@ -106,8 +121,8 @@ def register_debug_commands(
                 await interaction.followup.send(f"Purge failed: {e}", ephemeral=True)
         _ = debug_purge_bad_dates
 
-    @bot.tree.command(name="debug_generate_user", description="DEBUG: Generate clustered test user messages for this channel")
-    async def debug_generate_user(
+    @debug_group.command(name="generate_user", description="Generate clustered test user messages for this channel")
+    async def DebugGenerateUser(
         interaction: discord.Interaction,
         user_id: str | None = None,
         messages: int = 5,
@@ -139,4 +154,16 @@ def register_debug_commands(
                 await interaction.response.send_message(f"Error generating user: {e}", ephemeral=True)
             else:
                 await interaction.followup.send(f"Error generating user: {e}", ephemeral=True)
-        _ = debug_generate_user
+
+    # Register group on bot tree
+    bot.tree.add_command(debug_group)
+
+    # References for analyzers
+    _registered_debug_commands: dict[str, object] = {
+        "add_score": DebugAddScore,
+        "remove_score": DebugRemoveScore,
+        "user_info": DebugUserInfo,
+        "purge_bad_dates": DebugPurgeBadDates,
+        "generate_user": DebugGenerateUser,
+    }
+    _ = _registered_debug_commands

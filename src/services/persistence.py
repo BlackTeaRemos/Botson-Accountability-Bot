@@ -12,7 +12,7 @@ class PersistenceService:
 
     def is_channel_registered(self, discord_channel_id: int) -> bool:
         """Check if a Discord channel is registered."""
-        session: Session = self.db.get_session()
+        session: Session = self.db.GetSession()
         try:
             channel = session.query(Channel).filter(
                 and_(Channel.discord_channel_id == str(discord_channel_id), Channel.active == True)
@@ -27,7 +27,7 @@ class PersistenceService:
         Returns:
             A list of channel ids. Non-numeric ids are skipped defensively.
         """
-        session: Session = self.db.get_session()
+        session: Session = self.db.GetSession()
         try:
             rows = session.query(Channel.discord_channel_id).filter(Channel.active == True).all()
             ids: list[int] = []
@@ -51,7 +51,7 @@ class PersistenceService:
         content: str,
     ) -> None:
         """Insert a new Discord message row if absent."""
-        session: Session = self.db.get_session()
+        session: Session = self.db.GetSession()
         try:
             # Check if message already exists
             existing = session.query(Message).filter(
@@ -100,7 +100,7 @@ class PersistenceService:
         extracted_date: Optional[str],
     ) -> None:
         """Persist parse metadata for a message marked as habit candidate."""
-        session: Session = self.db.get_session()
+        session: Session = self.db.GetSession()
         try:
             message = session.query(Message).filter(
                 Message.discord_message_id == str(discord_message_id)
@@ -128,7 +128,7 @@ class PersistenceService:
         total: int,
     ) -> None:
         """Upsert per-message scoring record (idempotent for edits)."""
-        session: Session = self.db.get_session()
+        session: Session = self.db.GetSession()
         try:
             # Get message and channel
             message = session.query(Message).filter(
@@ -174,7 +174,7 @@ class PersistenceService:
 
     def recompute_daily_scores(self, channel_discord_id: int, date: str | None = None) -> None:
         """Rebuild per-day aggregates from per-message scores."""
-        session: Session = self.db.get_session()
+        session: Session = self.db.GetSession()
         try:
             channel = session.query(Channel).filter(
                 Channel.discord_channel_id == str(channel_discord_id)
@@ -252,7 +252,7 @@ class PersistenceService:
 
     def update_message_content(self, discord_message_id: int, new_content: str) -> None:
         """Update stored message content and clear prior parse so it can be re-parsed."""
-        session: Session = self.db.get_session()
+        session: Session = self.db.GetSession()
         try:
             message = session.query(Message).filter(
                 Message.discord_message_id == str(discord_message_id)
@@ -272,7 +272,7 @@ class PersistenceService:
 
     def clear_current_week_scores(self, channel_discord_id: int) -> int:
         """Delete daily score rows for the current ISO week for a given channel."""
-        session: Session = self.db.get_session()
+        session: Session = self.db.GetSession()
         try:
             channel = session.query(Channel).filter(
                 Channel.discord_channel_id == str(channel_discord_id)
@@ -312,7 +312,7 @@ class PersistenceService:
 
     def get_guild_report_style(self, guild_id: int) -> str:
         """Get report style for a guild."""
-        session: Session = self.db.get_session()
+        session: Session = self.db.GetSession()
         try:
             setting = session.query(GuildSetting).filter(
                 GuildSetting.guild_id == str(guild_id)
@@ -324,7 +324,7 @@ class PersistenceService:
 
     def set_guild_report_style(self, guild_id: int, style: str) -> None:
         """Set report style for a guild."""
-        session: Session = self.db.get_session()
+        session: Session = self.db.GetSession()
         try:
             setting = session.query(GuildSetting).filter(
                 GuildSetting.guild_id == str(guild_id)
@@ -345,7 +345,7 @@ class PersistenceService:
 
     def debug_add_score(self, user_id: str, date: str, channel_discord_id: int, delta: float) -> None:
         """Add (or create) a raw score delta to a user's day."""
-        session: Session = self.db.get_session()
+        session: Session = self.db.GetSession()
         try:
             channel = session.query(Channel).filter(
                 Channel.discord_channel_id == str(channel_discord_id)
@@ -383,7 +383,7 @@ class PersistenceService:
 
     def debug_remove_score(self, user_id: str, date: str, channel_discord_id: int, delta: float) -> None:
         """Subtract raw score delta; clamps at zero."""
-        session: Session = self.db.get_session()
+        session: Session = self.db.GetSession()
         try:
             channel = session.query(Channel).filter(
                 Channel.discord_channel_id == str(channel_discord_id)
@@ -409,7 +409,7 @@ class PersistenceService:
 
     def debug_get_user_info(self, user_id: str, channel_discord_id: int) -> Dict[str, Any]:
         """Return aggregate info for a user in a channel."""
-        session: Session = self.db.get_session()
+        session: Session = self.db.GetSession()
         try:
             channel = session.query(Channel).filter(
                 Channel.discord_channel_id == str(channel_discord_id)
@@ -439,7 +439,7 @@ class PersistenceService:
 
     def purge_non_iso_dates(self, channel_discord_id: int) -> tuple[int, List[str]]:
         """Remove rows whose date column is not in ISO YYYY-MM-DD format."""
-        session: Session = self.db.get_session()
+        session: Session = self.db.GetSession()
         try:
             channel = session.query(Channel).filter(
                 Channel.discord_channel_id == str(channel_discord_id)
@@ -475,7 +475,7 @@ class PersistenceService:
 
     def detect_non_iso_dates(self, channel_discord_id: int) -> List[str]:
         """Return list of date strings that are not ISO YYYY-MM-DD."""
-        session: Session = self.db.get_session()
+        session: Session = self.db.GetSession()
         try:
             channel = session.query(Channel).filter(
                 Channel.discord_channel_id == str(channel_discord_id)
