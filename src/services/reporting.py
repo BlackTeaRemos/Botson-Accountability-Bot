@@ -5,7 +5,6 @@ from typing import List, Dict, Tuple, Any
 import pandas as pd
 import matplotlib.pyplot as plt
 from sqlalchemy.orm import Session
-
 from ..db.connection import Database
 from ..db.models import HabitDailyScore
 from ..core.config import AppConfig
@@ -21,7 +20,11 @@ class ReportingService:
         self.config = config
 
     def _fetch_raw_scores(self, days: int) -> List[Dict[str, Any]]:
-        """Return daily aggregate rows for the last `days` distinct dates present.
+        """Return raw daily score rows; windowing is applied after normalization.
+
+        We intentionally fetch all rows ordered by date, because tests insert
+        historical fixed dates and expect `days` to mean "last N unique dates present"
+        rather than relative to current wall-clock time.
         """
         session: Session = self.db.GetSession()
         try:
@@ -31,6 +34,7 @@ class ReportingService:
                 .order_by(HabitDailyScore.date.asc())
                 .all()
             )
+
             # Convert to dictionary format matching the original structure
             result: List[Dict[str, Any]] = []
             for score in scores:
@@ -38,9 +42,9 @@ class ReportingService:
                 result.append({
                     'user_id': str(score.user_id),
                     'date': str(score.date),
-                    'raw_score_sum': float(cast(Any, score).raw_score_sum),  # type: ignore[arg-type]
+                    'raw_score_sum': float(getattr(score, 'raw_score_sum')),  # robust attribute access
                 })
-            # Fallback: if ORM returned no rows
+            # Fallback: if ORM returned no rows (edge case in tests with multiple engines), use raw SQL
             if not result:
                 raw_rows = self.db.QueryRaw(
                     "SELECT user_id, date, raw_score_sum FROM habit_daily_scores ORDER BY date ASC"
@@ -150,13 +154,13 @@ class ReportingService:
             data.append(row)
         columns = ['User'] + all_dates + ['Total']
         df = pd.DataFrame(data, columns=columns)
-        mpl: Any = plt
-        figure, axis = mpl.subplots(
+        figure_and_axis = plt.subplots(
             figsize=(
                 max(10, 1 + 1.2 * len(columns)),
                 0.7 * len(df) + 1
             )
         )
+        figure, axis = figure_and_axis  # type: ignore
         figure.patch.set_alpha(0.0)
         axis.set_facecolor('none')
         axis.axis('off')
@@ -167,7 +171,7 @@ class ReportingService:
             colLabels=column_labels,
             loc='center',
             cellLoc='center'
-        )
+        )  # type: ignore
         table.auto_set_font_size(False)
         table.set_fontsize(11)
         table.scale(1.1, 1.2)
@@ -229,9 +233,9 @@ class ReportingService:
                         pass
 
         apply_style(style)
-        # Tight layout not to add padding (padding contributes white if not transparent)
+        # Tight layout not to add padding
         buf = BytesIO()
-        mpl.savefig(
+        figure.savefig(
             buf,
             format='png',
             bbox_inches='tight',

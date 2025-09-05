@@ -88,7 +88,7 @@ def GetSettings(reload: bool = False) -> AppConfig:
 
         return AppConfig(
             discord_token=token,
-            database_path=settings.get("BOT_DB_PATH", "bot.db"),  # type: ignore
+            database_path=settings.get("DB_PATH", settings.get("BOT_DB_PATH", "bot.db")),  # type: ignore
             timezone=settings.get("BOT_TZ", "America/New_York"),  # type: ignore
             use_db_only=bool(settings.get("USE_DB_ONLY", False)),  # type: ignore
             backfill_default_days=int(settings.get("BACKFILL_DEFAULT_DAYS", 30)),  # type: ignore

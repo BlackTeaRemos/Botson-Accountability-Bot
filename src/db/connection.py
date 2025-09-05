@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker, Session
-from sqlalchemy.pool import StaticPool
 from sqlalchemy.sql import text
 from typing import Any
 from collections.abc import Mapping, Sequence
@@ -26,9 +25,23 @@ class Database:
             connect_args={
                 "check_same_thread": False,  # Allow multi-threading
             },
-            poolclass=StaticPool,  # Better for SQLite
-            echo=False
+            pool_pre_ping=True,
+            echo=False,
         )
+
+        # Ensure SQLite pragmas are applied for every DBAPI connection taken from the pool
+        def _set_sqlite_pragmas(dbapi_connection, connection_record):  # type: ignore[no-redef]
+            try:
+                cursor = dbapi_connection.cursor()
+                cursor.execute("PRAGMA foreign_keys=ON")
+                # WAL is persistent per database; calling is harmless if already set
+                cursor.execute("PRAGMA journal_mode=WAL")
+                cursor.close()
+            except Exception:
+                # Best-effort; do not block engine initialization
+                pass
+
+        event.listen(self._engine, "connect", _set_sqlite_pragmas)  # type: ignore[arg-type]
 
         self._session_factory = sessionmaker(  # Session factory for creating sessions
             bind=self._engine,
