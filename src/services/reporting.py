@@ -1,11 +1,11 @@
 from __future__ import annotations
 from datetime import datetime
 from io import BytesIO
-from typing import List, Dict, Tuple, Any, cast
+from typing import List, Dict, Tuple, Any
 import pandas as pd
 import matplotlib.pyplot as plt
 from sqlalchemy.orm import Session
-# from sqlalchemy import text  # kept for potential future raw SQL use
+
 from ..db.connection import Database
 from ..db.models import HabitDailyScore
 from ..core.config import AppConfig
@@ -21,11 +21,7 @@ class ReportingService:
         self.config = config
 
     def _fetch_raw_scores(self, days: int) -> List[Dict[str, Any]]:
-        """Return raw daily score rows; windowing is applied after normalization.
-
-        We intentionally fetch all rows ordered by date, because tests insert
-        historical fixed dates and expect `days` to mean "last N unique dates present"
-        rather than relative to current wall-clock time.
+        """Return daily aggregate rows for the last `days` distinct dates present.
         """
         session: Session = self.db.GetSession()
         try:
@@ -35,7 +31,6 @@ class ReportingService:
                 .order_by(HabitDailyScore.date.asc())
                 .all()
             )
-
             # Convert to dictionary format matching the original structure
             result: List[Dict[str, Any]] = []
             for score in scores:
@@ -155,21 +150,16 @@ class ReportingService:
             data.append(row)
         columns = ['User'] + all_dates + ['Total']
         df = pd.DataFrame(data, columns=columns)
-        # matplotlib types are not fully available to the analyzer; cast to Any when needed
-        figure_and_axis = cast(
-            Any,
-            plt.subplots(
-                figsize=(
-                    max(10, 1 + 1.2 * len(columns)),
-                    0.7 * len(df) + 1
-                )
+        mpl: Any = plt
+        figure, axis = mpl.subplots(
+            figsize=(
+                max(10, 1 + 1.2 * len(columns)),
+                0.7 * len(df) + 1
             )
-        )  # type: ignore
-        figure, axis = figure_and_axis  # type: ignore
+        )
         figure.patch.set_alpha(0.0)
         axis.set_facecolor('none')
         axis.axis('off')
-        # Convert DataFrame values and columns to plain Python lists to satisfy matplotlib typing
         cell_texts = df.values.tolist()
         column_labels = list(df.columns)
         table = axis.table(
@@ -177,7 +167,7 @@ class ReportingService:
             colLabels=column_labels,
             loc='center',
             cellLoc='center'
-        )  # type: ignore
+        )
         table.auto_set_font_size(False)
         table.set_fontsize(11)
         table.scale(1.1, 1.2)
@@ -210,7 +200,7 @@ class ReportingService:
                 edge = (0.55, 0.45, 0.30, 0.5)
             else:  # fallback style1
                 return apply_style("style1")
-            # Iterate the table cells and apply visuals. Use typing.cast to Any to quiet the type checker.
+            # Iterate the table cells and apply visuals.
             table_any = table
             for (row_i, _col_j), cell in table_any.get_celld().items():
                 cell_any = cell
@@ -241,16 +231,13 @@ class ReportingService:
         apply_style(style)
         # Tight layout not to add padding (padding contributes white if not transparent)
         buf = BytesIO()
-        cast(
-            Any,
-            plt
-        ).savefig(
+        mpl.savefig(
             buf,
             format='png',
             bbox_inches='tight',
             dpi=180,
             transparent=True
-        )  # type: ignore
+        )
         buf.seek(0)
         plt.close(figure)
         human_dates = [

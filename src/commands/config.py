@@ -9,7 +9,6 @@ from discord import app_commands
 
 from ..services.settings import SettingsService, BLOCKED_KEYS
 
-
 def _HasManageGuild(interaction: discord.Interaction) -> bool:
     """Check if the user has manage guild permission.
 

@@ -1,3 +1,8 @@
+"""Database schema migrations: generate initial DDL from ORM models and apply versions.
+"""
+
+from __future__ import annotations
+
 from sqlalchemy import create_engine
 from sqlalchemy.sql import text
 import os
@@ -54,6 +59,20 @@ MIGRATIONS: list[tuple[int, str]] = [
         );
         CREATE INDEX IF NOT EXISTS idx_settings_key ON settings (key);
         """,
+    ),
+    # Migration 2: add settings table for runtime config (excludes secrets like token)
+    (
+        2,
+        (
+            """
+            CREATE TABLE IF NOT EXISTS settings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                key VARCHAR NOT NULL UNIQUE,
+                value TEXT NOT NULL,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+            """
+        ).strip(),
     ),
 ]
 

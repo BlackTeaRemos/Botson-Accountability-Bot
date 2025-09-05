@@ -1,4 +1,5 @@
-"""Reporting-related slash commands (weekly reports and style settings)."""
+"""Reporting-related slash commands (weekly reports and style settings).
+"""
 
 from datetime import datetime
 import discord

@@ -1,4 +1,4 @@
-"""Debug and developer helper slash commands."""
+"""Debug and developer helper slash commands, grouped under /debug."""
 
 from typing import Any, Callable, Dict
 import discord

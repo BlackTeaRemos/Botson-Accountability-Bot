@@ -19,6 +19,7 @@ def test_message_insert_and_parse_update(db: Database, seed_channel: int) -> Non
     storage.insert_message(111, seed_channel, 999, "tester", "2024-01-01T01:02:03", "[x] done")
     storage.update_habit_parse(111, 1, 1, 0.9, "2024-01-01")
     session: Session = db.GetSession()
+    
     try:
         msg = session.query(Message).filter(Message.discord_message_id == "111").first()
         assert msg is not None
@@ -41,6 +42,7 @@ def test_insert_replace_message_score_and_recompute(db: Database, seed_channel: 
     storage.recompute_daily_scores(seed_channel, date="2024-01-02")
 
     session: Session = db.GetSession()
+
     try:
         msg = session.query(Message).filter(Message.discord_message_id == "222").one()
         mscore = session.query(HabitMessageScore).filter(HabitMessageScore.message_id == msg.id).one()
@@ -79,6 +81,7 @@ def test_update_message_content_resets_parse(db: Database, seed_channel: int) ->
     storage.update_habit_parse(333, 1, 1, 0.9, "2024-01-05")
     storage.update_message_content(333, "[ ] changed")
     session: Session = db.GetSession()
+
     try:
         msg = session.query(Message).filter(Message.discord_message_id == "333").one()
         assert msg.is_habit_candidate is False

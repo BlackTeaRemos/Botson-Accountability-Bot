@@ -21,6 +21,7 @@ from . import events
 from .commands import reporting as reporting_commands
 from .commands import debug as debug_commands
 from .commands import channels as channel_commands
+from .commands import config as config_commands
 from .commands import utils as command_utils
 from .commands import config as config_commands
 
@@ -65,6 +66,7 @@ def _ComputeOverriddenConfig(base: AppConfig) -> AppConfig:  # type: ignore
         new_config = _ComputeOverriddenConfig(base_config)
         # new_config.timezone will be from DB if set, otherwise base_config.timezone
     """
+
     from dataclasses import replace
     # Gather overrides
     tz = settings.get("timezone")
@@ -160,6 +162,7 @@ async def ApplyRuntimeSettings() -> None:
     # Restart scheduler according to new settings
     try:
         if new_config.scheduled_reports_enabled:  # type: ignore
+
             if report_scheduler is None:
                 from .services.scheduler import ReportScheduler  # type: ignore
                 report_scheduler = ReportScheduler(bot, storage, reporting, new_config)  # type: ignore[assignment]

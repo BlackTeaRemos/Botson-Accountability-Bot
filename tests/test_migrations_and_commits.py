@@ -1,16 +1,15 @@
 from __future__ import annotations
 
-from typing import Any
-
+from pathlib import Path
 from sqlalchemy.orm import Session
-from sqlalchemy import func
 
+from src.db.connection import Database
 from src.db.models import Channel, Message, HabitMessageScore, HabitDailyScore
-from src.services.persistence import PersistenceService
 from src.services.diagnostics import DiagnosticsService
+from src.services.persistence import PersistenceService
 
 
-def test_migrations_create_db_and_tables(db) -> None:
+def test_migrations_create_db_and_tables(db: Database) -> None:
     # Smoke-check that a basic query works and tables exist
     session: Session = db.GetSession()
     try:
@@ -20,12 +19,12 @@ def test_migrations_create_db_and_tables(db) -> None:
         session.close()
 
 
-def test_inserts_and_commits(db) -> None:
+def test_inserts_and_commits(db: Database) -> None:
     # Insert a channel and a message and ensure counts increase
     session: Session = db.GetSession()
     try:
-        if not session.query(Channel).filter(Channel.discord_channel_id == '12345').first():
-            session.add(Channel(discord_channel_id='12345', registered_by='tester', active=True))
+        if not session.query(Channel).filter(Channel.discord_channel_id == "12345").first():
+            session.add(Channel(discord_channel_id="12345", registered_by="tester", active=True))
             session.commit()
     finally:
         session.close()
@@ -64,28 +63,40 @@ def test_inserts_and_commits(db) -> None:
 
     session = db.GetSession()
     try:
-        msg = session.query(Message).filter(Message.discord_message_id == '111').first()
+        msg = session.query(Message).filter(Message.discord_message_id == "111").first()
         assert msg is not None
         score = session.query(HabitMessageScore).filter(HabitMessageScore.message_id == msg.id).first()
         assert score is not None
-        daily = session.query(HabitDailyScore).filter(
-            HabitDailyScore.channel_id == msg.channel_id,
-            HabitDailyScore.user_id == str(999),
-            HabitDailyScore.date == "2024-01-01",
-        ).first()
+        daily = (
+            session.query(HabitDailyScore)
+            .filter(
+                HabitDailyScore.channel_id == msg.channel_id,
+                HabitDailyScore.user_id == str(999),
+                HabitDailyScore.date == "2024-01-01",
+            )
+            .first()
+        )
         assert daily is not None
     finally:
         session.close()
 
 
-def test_diagnostics_reports_ok(db) -> None:
-    diag = DiagnosticsService(bus=__import__('types').SimpleNamespace(emit=lambda *a, **k: None), db=db, db_path=':memory:')
+def test_diagnostics_reports_ok(db: Database) -> None:
+    from typing import Dict, Any
+    from src.core.events import Event, EventBus
+
+    class DummyBus(EventBus):
+        async def emit(self, type: str, payload: Dict[str, Any], context: Dict[str, Any] | None = None) -> Event:
+            # Create and return an Event instance (no-op publish)
+            return Event(type=type, payload=payload, context=context or {})
+
+    diag = DiagnosticsService(bus=DummyBus(), db=db, db_path=":memory:")
     snapshot = diag.collect()
-    assert snapshot.get('database', {}).get('status') == 'ok'
-    assert 'counts' in snapshot
+    assert snapshot.get("database", {}).get("status") == "ok"
+    assert "counts" in snapshot
 
 
-def test_migration_creates_db_when_dir_missing(tmp_path) -> None:
+def test_migration_creates_db_when_dir_missing(tmp_path: Path) -> None:
     import os
     from src.db.connection import Database
     from src.db.migrations import EnsureMigrated
@@ -97,13 +108,11 @@ def test_migration_creates_db_when_dir_missing(tmp_path) -> None:
 
     # Idempotency: calling again should not raise and schema_version should have at least one row
     EnsureMigrated(str(db_path))
+
     database = Database(str(db_path))
     session = database.GetSession()
     try:
-        # schema_version should exist, at least one row
-        rows = session.execute(
-            __import__('sqlalchemy').text("SELECT COUNT(1) FROM schema_version")
-        ).scalar_one()
+        rows = session.execute(__import__("sqlalchemy").text("SELECT COUNT(1) FROM schema_version")).scalar_one()
         assert rows >= 1
     finally:
         session.close()

@@ -1,10 +1,17 @@
-"""Small utilities used by command modules."""
+"""Small utilities used by command modules.
+"""
 
 from typing import Any, Dict, cast
 
 
 def JsonDumpsCompact(data: Any) -> str:
     """Serialize `data` to compact JSON with stable key ordering.
+
+    Args:
+        data (Any): Arbitrary JSON-serializable data.
+
+    Returns:
+        str: Compact JSON string with sorted keys.
     """
     import json
 

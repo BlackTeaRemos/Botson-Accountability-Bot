@@ -1,16 +1,22 @@
 import os
-import tempfile
-import shutil
-import pytest
+import pytest  # type: ignore
+
+# Ensure headless matplotlib backend for image-generation tests
+try:
+    import matplotlib
+    matplotlib.use("Agg")  # type: ignore[attr-defined]
+except Exception:
+    pass
 
 from src.db.migrations import EnsureMigrated
 from src.db.connection import Database
+from typing import Iterator, Any
+from sqlalchemy.orm import Session
 from src.db.models import Channel
 from src.services.persistence import PersistenceService
-from sqlalchemy.orm import Session
 
-@pytest.fixture()
-def temp_db_path(tmp_path_factory: pytest.TempPathFactory):
+@pytest.fixture()  # type: ignore
+def temp_db_path(tmp_path_factory: Any) -> Iterator[str]:
     # Create a unique temporary database path per test session
     tmpdir = tmp_path_factory.mktemp("db")
     db_path = os.path.join(str(tmpdir), "test.db")
@@ -24,8 +30,8 @@ def temp_db_path(tmp_path_factory: pytest.TempPathFactory):
         except Exception:
             pass
 
-@pytest.fixture()
-def db(temp_db_path: str):
+@pytest.fixture()  # type: ignore
+def db(temp_db_path: str) -> Database:
     # Run migrations and return Database instance
     EnsureMigrated(temp_db_path)
     database = Database(temp_db_path)

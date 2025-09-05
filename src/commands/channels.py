@@ -1,9 +1,8 @@
-"""Channel registration related commands."""
+"""Channel registration related commands, grouped under /channel."""
 
 from typing import Any
 import discord
 from discord import app_commands
-
 
 def RegisterChannelCommands(bot: Any, channels_service: Any) -> None:
     """Register channel management commands on the bot.
@@ -37,7 +36,6 @@ def RegisterChannelCommands(bot: Any, channels_service: Any) -> None:
                 "This command must be used in a server text channel.", ephemeral=True
             )
             return
-
         # Defer while we perform registration work
         await interaction.response.defer(ephemeral=True, thinking=True)
         try:

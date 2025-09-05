@@ -49,6 +49,28 @@ Scheduler (embed posts):
 - `SCHEDULED_REPORT_INTERVAL_MINUTES` (default 60) — minutes between posts
 - `SCHEDULED_REPORT_CHANNEL_IDS` (optional CSV of channel IDs) — if set, only these channels get posts; otherwise, all registered channels are used
 
+## Runtime Configuration via Discord
+
+The bot supports runtime-editable configuration persisted in the database (safe keys only; the Discord token is never stored and cannot be edited via commands).
+
+Slash commands (Manage Server permission required):
+
+- /config_list — list keys stored in DB
+- /config_get key:<name> — show current value
+- /config_set key:<name> value:<json-or-primitive> — set a value and apply immediately
+- /config_delete key:<name> — remove a key and re-apply defaults
+
+Examples of values:
+
+- true, false
+- 15, 60
+- "UTC"
+- [123456789012345678, 234567890123456789]
+
+Blocked keys: DISCORD_TOKEN, discord_token, token.
+
+On changes, the weekly report scheduler is started/stopped/reconfigured to reflect new settings right away.
+
 ## Current Status
 Scaffold includes: migrations, event bus, channel registration, message ingestion, habit parsing (raw scores), weekly report (image and embed), and a configurable scheduler for periodic embed posts.
 
@@ -60,4 +82,12 @@ Botson is licensed under the Apache License 2.0. This permissive license allows 
 By contributing, you agree to license your work under Apache-2.0 and grant maintainers the right to relicense future versions under other OSI-approved licenses if needed (see CONTRIBUTING.md for details).
 
 ## Safety Note
+## Development
+
+Run tests locally:
+
+```
+pip install -r requirements.txt
+pytest -q
+```
 Never commit your real Discord bot token. Use `.env`, compose environment section, or secret management.
