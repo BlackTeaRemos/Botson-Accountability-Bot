@@ -78,8 +78,7 @@ def RegisterReportingCommands(
                     await interaction.followup.send(f"Error generating report: {e}", ephemeral=True)
             except Exception:
                 print(f"[weekly_report] Failed to send error response: {e}")
-        # Reference the nested command so static analysis recognizes it is used via decorator
-        _ = weekly_report
+    pass
 
     async def _WeeklyEmbedImpl(interaction: discord.Interaction) -> None:
         try:
@@ -145,8 +144,8 @@ def RegisterReportingCommands(
                 await interaction.response.send_message(f"Embed report error: {e}", ephemeral=True)
             else:
                 await interaction.followup.send(f"Embed report error: {e}", ephemeral=True)
-        # Mark used for static analysis (the decorator registers the function)
-        _ = weekly_report_embed
+    # No-op
+    pass
 
     async def _SetReportStyleImpl(interaction: discord.Interaction, style: str) -> None:
         valid = {"style1","style2","style3","style4"}
@@ -158,8 +157,8 @@ def RegisterReportingCommands(
             return
         storage.set_guild_report_style(interaction.guild_id, style)
         await interaction.response.send_message(f"Report style set to {style}.", ephemeral=True)
-    # Mark used for static analysis
-    _ = set_report_style
+    # No-op
+    pass
 
     async def _ClearWeekImpl(interaction: discord.Interaction) -> None:
         try:
@@ -177,8 +176,8 @@ def RegisterReportingCommands(
                 await interaction.response.send_message(f"Clear failed: {e}", ephemeral=True)
             else:
                 await interaction.followup.send(f"Clear failed: {e}", ephemeral=True)
-        # Mark used for static analysis
-        _ = clear_week
+    # No-op
+    pass
 
     async def _BackfillImpl(interaction: discord.Interaction) -> None:
         try:

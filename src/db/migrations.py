@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, MetaData, Table, Column, Integer, String, DateTime, Float, Text, Boolean, ForeignKey, UniqueConstraint, Index
+from sqlalchemy import create_engine
 from sqlalchemy.sql import text
 import os
 
@@ -39,6 +39,21 @@ MIGRATIONS: list[tuple[int, str]] = [
     (
         1,
         GenerateMigrationSql(),
+    ),
+    (
+        2,
+        """
+        CREATE TABLE IF NOT EXISTS settings (
+            id INTEGER NOT NULL, 
+            key VARCHAR NOT NULL, 
+            value TEXT NOT NULL DEFAULT '', 
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, 
+            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, 
+            PRIMARY KEY (id), 
+            UNIQUE (key)
+        );
+        CREATE INDEX IF NOT EXISTS idx_settings_key ON settings (key);
+        """,
     ),
 ]
 

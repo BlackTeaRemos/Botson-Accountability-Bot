@@ -1,6 +1,6 @@
 """Small utilities used by command modules."""
 
-from typing import Any
+from typing import Any, Dict, cast
 
 
 def JsonDumpsCompact(data: Any) -> str:

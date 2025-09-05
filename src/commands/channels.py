@@ -2,6 +2,7 @@
 
 from typing import Any
 import discord
+from discord import app_commands
 
 
 def RegisterChannelCommands(bot: Any, channels_service: Any) -> None:
@@ -29,13 +30,22 @@ def RegisterChannelCommands(bot: Any, channels_service: Any) -> None:
         Returns:
             None
         """
-        await interaction.response.defer(ephemeral=True, thinking=True)
+        # If not invoked in a guild text channel, reply immediately and exit.
         cid = interaction.channel_id
         if cid is None:
-            await interaction.response.send_message("This command must be used in a channel.", ephemeral=True)
+            await interaction.response.send_message(
+                "This command must be used in a server text channel.", ephemeral=True
+            )
             return
-        await channels_service.register(cid, interaction.user.id, None)
-        await interaction.followup.send("Channel registered for habit tracking.")
+
+        # Defer while we perform registration work
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        try:
+            await channels_service.register(cid, interaction.user.id, None)
+            await interaction.followup.send("Channel registered for habit tracking.")
+        except Exception as e:
+            # Send error via followup since we've already deferred
+            await interaction.followup.send(f"Failed to register channel: {e}")
 
     bot.tree.add_command(channel_group)
 

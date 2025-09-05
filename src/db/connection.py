@@ -1,8 +1,11 @@
-from sqlalchemy import create_engine, event
+from __future__ import annotations
+
+from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.pool import StaticPool
 from sqlalchemy.sql import text
-from typing import Tuple
+from typing import Any
+from collections.abc import Mapping, Sequence
 
 # Import table definitions from migrations and models
 from .migrations import metadata
@@ -65,10 +68,13 @@ class Database:
             params: Parameters for SQL query.
         """
         with self._engine.connect() as conn:
-            conn.execute(text(sql), params)
+            if params is None:
+                conn.execute(text(sql))
+            else:
+                conn.execute(text(sql), params)
             conn.commit()
 
-    def QueryRaw(self, sql: str, params: Mapping[str, Any] | Sequence[Any] | None = None) -> List[tuple[Any, ...]]:
+    def QueryRaw(self, sql: str, params: Mapping[str, Any] | Sequence[Any] | None = None) -> list[tuple[Any, ...]]:
         """Execute raw SQL query and return results.
 
         Args:
@@ -79,5 +85,10 @@ class Database:
             List of result rows.
         """
         with self._engine.connect() as conn:
-            result = conn.execute(text(sql), params)
-            return result.fetchall()
+            if params is None:
+                result = conn.execute(text(sql))
+            else:
+                result = conn.execute(text(sql), params)
+            rows = result.fetchall()
+            # SQLAlchemy returns Row objects; normalize to tuples for typing simplicity
+            return [tuple(row) for row in rows]

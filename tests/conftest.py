@@ -5,6 +5,9 @@ import pytest
 
 from src.db.migrations import EnsureMigrated
 from src.db.connection import Database
+from src.db.models import Channel
+from src.services.persistence import PersistenceService
+from sqlalchemy.orm import Session
 
 @pytest.fixture()
 def temp_db_path(tmp_path_factory: pytest.TempPathFactory):

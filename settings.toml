@@ -1,0 +1,21 @@
+[default]
+BOT_DB_PATH = "bot.db"
+BOT_TZ = "America/New_York"
+USE_DB_ONLY = false
+BACKFILL_DEFAULT_DAYS = 30
+GUILD_ID = 0
+DAILY_GOAL_TASKS = 5
+SCHEDULED_REPORTS_ENABLED = true
+SCHEDULED_REPORT_INTERVAL_MINUTES = 1
+SCHEDULED_REPORT_CHANNEL_IDS = []
+
+[development]
+# overrides for local dev
+SCHEDULED_REPORT_INTERVAL_MINUTES = 5
+
+[testing]
+# test-friendly defaults
+DISCORD_TOKEN = "test-token"
+USE_DB_ONLY = true
+BACKFILL_DEFAULT_DAYS = 1
+SCHEDULED_REPORTS_ENABLED = false

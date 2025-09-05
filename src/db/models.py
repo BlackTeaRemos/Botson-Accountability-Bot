@@ -158,3 +158,24 @@ class GuildSetting(Base):
     guild_id = Column(String, unique=True, nullable=False)
     report_style = Column(String, nullable=False, default='style1')
     updated_at = Column(DateTime, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+
+class Setting(Base):
+    """Key-value settings stored in DB for runtime overrides.
+
+    Only non-sensitive configuration is stored here. Values are JSON strings
+    encoded/decoded by the service layer.
+    """
+    __tablename__ = 'settings'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    key = Column(String, nullable=False, unique=True)
+    value = Column(Text, nullable=False, default='')
+    created_at = Column(DateTime, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+    updated_at = Column(DateTime, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+    # Indexes and constraints
+    __table_args__ = (
+        UniqueConstraint('key'),
+        Index('idx_settings_key', 'key'),
+    )

@@ -2,6 +2,7 @@
 
 from typing import Any, Callable, Dict
 import discord
+from discord import app_commands
 from ..services.persistence import PersistenceService
 
 
@@ -42,7 +43,6 @@ def RegisterDebugCommands(
                 await interaction.response.send_message(f"Error: {e}", ephemeral=True)
             else:
                 await interaction.followup.send(f"Error: {e}", ephemeral=True)
-        _ = debug_add_score
 
     @debug_group.command(name="remove_score", description="Remove raw score delta from user for a date")
     async def DebugRemoveScore(interaction: discord.Interaction, user_id: str, date: str, delta: float):
@@ -61,7 +61,6 @@ def RegisterDebugCommands(
                 await interaction.response.send_message(f"Error: {e}", ephemeral=True)
             else:
                 await interaction.followup.send(f"Error: {e}", ephemeral=True)
-        _ = debug_remove_score
 
     @debug_group.command(name="user_info", description="Show recent daily stats for a user")
     async def DebugUserInfo(interaction: discord.Interaction, user_id: str):
@@ -96,7 +95,6 @@ def RegisterDebugCommands(
                 await interaction.response.send_message(f"Error: {e}", ephemeral=True)
             else:
                 await interaction.followup.send(f"Error: {e}", ephemeral=True)
-        _ = debug_user_info
 
     @debug_group.command(name="purge_bad_dates", description="Purge non-ISO date rows for this channel")
     async def DebugPurgeBadDates(interaction: discord.Interaction):
@@ -109,7 +107,7 @@ def RegisterDebugCommands(
                 await interaction.response.send_message("Channel not registered.", ephemeral=True)
                 return
             await interaction.response.defer(ephemeral=True, thinking=True)
-            deleted = storage.purge_non_iso_dates(cid)
+            deleted, _deleted_dates = storage.purge_non_iso_dates(cid)
             await interaction.followup.send(
                 f"Purge complete. Deleted {deleted} daily rows (and related per-message scores).",
                 ephemeral=True,
@@ -119,7 +117,6 @@ def RegisterDebugCommands(
                 await interaction.response.send_message(f"Purge failed: {e}", ephemeral=True)
             else:
                 await interaction.followup.send(f"Purge failed: {e}", ephemeral=True)
-        _ = debug_purge_bad_dates
 
     @debug_group.command(name="generate_user", description="Generate clustered test user messages for this channel")
     async def DebugGenerateUser(

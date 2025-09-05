@@ -7,8 +7,8 @@ from typing import Any, Dict, List
 import random
 from datetime import timedelta
 
-from .core.config import load_config, AppConfig
-from .db.migrations import ensure_migrated
+from .core.config import LoadConfig, AppConfig  # type: ignore
+from .db.migrations import EnsureMigrated
 from .db.connection import Database
 from .core.events import EventBus
 from .services.diagnostics import DiagnosticsService
@@ -16,11 +16,13 @@ from .services.channel_registration import ChannelRegistrationService
 from .services.habit_parser import HabitParser
 from .services.persistence import PersistenceService
 from .services.reporting import ReportingService
+from .services.settings import SettingsService
 from . import events
 from .commands import reporting as reporting_commands
 from .commands import debug as debug_commands
 from .commands import channels as channel_commands
 from .commands import utils as command_utils
+from .commands import config as config_commands
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -36,15 +38,33 @@ diagnostics = DiagnosticsService(bus, db, config.database_path)  # type: ignore
 channels = ChannelRegistrationService(bus, db, config.backfill_default_days)  # type: ignore
 habit_parser = HabitParser(bus)
 storage = PersistenceService(db)
-reporting = ReportingService(db, config)
+reporting = ReportingService(db, config)  # type: ignore
 settings = SettingsService(db)
 report_scheduler: object | None = None
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 
-def _compute_overridden_config(base: AppConfig) -> AppConfig:
-    """Overlay DB settings onto the base config (excluding token)."""
+def _ComputeOverriddenConfig(base: AppConfig) -> AppConfig:  # type: ignore
+    """Overlay DB settings onto the base config (excluding token).
+
+    This function reads configuration settings from the database and overlays them
+    onto the base configuration loaded from files/environment. The token is never
+    stored in or read from the database for security reasons.
+
+    Args:
+        base: The base AppConfig loaded from files and environment variables
+
+    Returns:
+        AppConfig: A new AppConfig instance with DB settings overlaid on the base
+
+    Raises:
+        No exceptions raised; invalid DB values fall back to base config defaults
+
+    Example:
+        new_config = _ComputeOverriddenConfig(base_config)
+        # new_config.timezone will be from DB if set, otherwise base_config.timezone
+    """
     from dataclasses import replace
     # Gather overrides
     tz = settings.get("timezone")
@@ -99,30 +119,47 @@ def _compute_overridden_config(base: AppConfig) -> AppConfig:
             return default
         return default
 
-    cfg = replace(
-        base,
-        timezone=str(tz) if isinstance(tz, str) and tz else base.timezone,
-        use_db_only=as_bool(use_db_only, base.use_db_only),
-        backfill_default_days=as_int(backfill_days, base.backfill_default_days),
-        guild_id=as_int(guild_id, base.guild_id or 0) or None,
-        daily_goal_tasks=as_int(daily_goal, base.daily_goal_tasks),
-        scheduled_reports_enabled=as_bool(sched_enabled, base.scheduled_reports_enabled),
-        scheduled_report_interval_minutes=as_int(sched_interval, base.scheduled_report_interval_minutes),
-        scheduled_report_channel_ids=as_tuple_ints(sched_channels, base.scheduled_report_channel_ids),
+    cfg = replace(  # type: ignore
+        base,  # type: ignore
+        timezone=str(tz) if isinstance(tz, str) and tz else base.timezone,  # type: ignore
+        use_db_only=as_bool(use_db_only, base.use_db_only),  # type: ignore
+        backfill_default_days=as_int(backfill_days, base.backfill_default_days),  # type: ignore
+        guild_id=as_int(guild_id, base.guild_id or 0) or None,  # type: ignore
+        daily_goal_tasks=as_int(daily_goal, base.daily_goal_tasks),  # type: ignore
+        scheduled_reports_enabled=as_bool(sched_enabled, base.scheduled_reports_enabled),  # type: ignore
+        scheduled_report_interval_minutes=as_int(sched_interval, base.scheduled_report_interval_minutes),  # type: ignore
+        scheduled_report_channel_ids=as_tuple_ints(sched_channels, base.scheduled_report_channel_ids),  # type: ignore
     )
-    return cfg
+    return cfg  # type: ignore
 
 
-async def apply_runtime_settings() -> None:
-    """Reload config overrides from DB and apply to running services."""
+async def ApplyRuntimeSettings() -> None:
+    """Reload config overrides from DB and apply to running services.
+
+    This function reloads configuration settings from the database and applies them
+    to running services without restarting the bot. It updates the reporting service
+    configuration and restarts or stops the report scheduler based on the new settings.
+
+    Args:
+        None
+
+    Returns:
+        None
+
+    Raises:
+        No exceptions raised; errors are logged and the function continues
+
+    Example:
+        await ApplyRuntimeSettings()  # Reload and apply DB config settings
+    """
     global config, reporting, report_scheduler
-    new_config = _compute_overridden_config(config)
+    new_config = _ComputeOverriddenConfig(config)
     config = new_config
     # Propagate to services
     reporting.config = new_config
     # Restart scheduler according to new settings
     try:
-        if new_config.scheduled_reports_enabled:
+        if new_config.scheduled_reports_enabled:  # type: ignore
             if report_scheduler is None:
                 from .services.scheduler import ReportScheduler  # type: ignore
                 report_scheduler = ReportScheduler(bot, storage, reporting, new_config)  # type: ignore[assignment]
@@ -155,16 +192,31 @@ async def on_ready() -> None:
         # Always perform global sync so commands appear in every server the bot joins.
         global_synced = await bot.tree.sync()
         print(f"[Commands] Global sync -> {len(global_synced)} commands (global propagation may take up to ~1 hour)")
-        # Optionally also push a guild-specific sync for immediate availability in a primary guild.
-        if config.guild_id:  # type: ignore
-            guild = discord.Object(id=config.guild_id)  # type: ignore
-            guild_synced = await bot.tree.sync(guild=guild)
-            print(f"[Commands] Guild sync ({config.guild_id}) -> {len(guild_synced)} commands (immediate)")  # type: ignore
+        # If the bot is in a small number of guilds (<5), perform per-guild sync for immediate availability.
+        guild_count = len(bot.guilds)
+        if guild_count < 5:
+            synced_total = 0
+            for g in bot.guilds:
+                try:
+                    guild_obj = discord.Object(id=g.id)  # type: ignore[arg-type]
+                    # Copy global commands into the guild scope for instant availability, then sync
+                    try:
+                        bot.tree.copy_global_to(guild=guild_obj)
+                    except Exception:
+                        # Safe to ignore; copy is best-effort
+                        pass
+                    guild_synced = await bot.tree.sync(guild=guild_obj)
+                    synced_total += len(guild_synced)
+                    print(f"[Commands] Guild sync ({g.id}) -> {len(guild_synced)} commands (immediate)")
+                except Exception as guild_err:
+                    print(f"[Commands] Guild sync failed for {g.id}: {guild_err}")
+        else:
+            print(f"[Commands] Skipping per-guild sync (joined guilds={guild_count}); relying on global propagation.")
     except Exception as e:
         print(f"[Commands] Sync failed: {e}")
     # Apply any DB-backed overrides before starting scheduler
     try:
-        await apply_runtime_settings()
+        await ApplyRuntimeSettings()
     except Exception as e:
         print(f"[Config] Failed to apply runtime settings on startup: {e}")
     # Start scheduled reports if enabled
@@ -209,10 +261,10 @@ def RegisterBotCommands() -> None:
         RegisterBotCommands()  # Registers all bot commands
     """
     # Module-registered commands
-    reporting_commands.register_reporting_commands(bot, storage, reporting, channels, config)
-    debug_commands.register_debug_commands(bot, storage, generate_random_user_recent)
-    channel_commands.register_channel_commands(bot, channels)
-    config_commands.register_config_commands(bot, settings, apply_runtime_settings)
+    reporting_commands.RegisterReportingCommands(bot, storage, reporting, channels, config)  # type: ignore
+    debug_commands.RegisterDebugCommands(bot, storage, GenerateRandomUserRecent)
+    channel_commands.RegisterChannelCommands(bot, channels)
+    config_commands.RegisterConfigCommands(bot, settings, ApplyRuntimeSettings)
 
     # Inline diagnostics command
     @bot.tree.command(name="diagnostics", description="Show basic diagnostics (db, counts, disk)")
@@ -220,12 +272,12 @@ def RegisterBotCommands() -> None:
         try:
             snapshot = diagnostics.collect()
             # Prefer a readable summary; if too long, fall back to compact JSON
-            readable = command_utils.format_diagnostics_markdown(snapshot)
+            readable = command_utils.FormatDiagnosticsMarkdown(snapshot)
             content: str
             if len(readable) <= 1900:
                 content = f"```\n{readable}\n```"
             else:
-                json_text = command_utils.json_dumps_compact(snapshot)
+                json_text = command_utils.JsonDumpsCompact(snapshot)
                 if len(json_text) > 1900:
                     json_text = json_text[:1900] + "... (truncated)"
                 content = f"```json\n{json_text}\n```"
