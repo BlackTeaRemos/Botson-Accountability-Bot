@@ -12,7 +12,7 @@ from src.db.models import Message, HabitMessageScore, HabitDailyScore
 
 
 async def _emit(bus: EventBus, type: str, payload: dict[str, object]) -> None:
-    await bus.emit(type, payload)
+    await bus.Emit(type, payload)
 
 
 def test_ingestion_parses_and_scores(db: Database, seed_channel: int) -> None:
@@ -33,7 +33,7 @@ def test_ingestion_parses_and_scores(db: Database, seed_channel: int) -> None:
     asyncio.get_event_loop().run_until_complete(_emit(bus, "MessageReceived", payload))
 
     # Verify message row and scores exist
-    session: Session = db.get_session()
+    session: Session = db.GetSession()
     try:
         msg = (
             session.query(Message)

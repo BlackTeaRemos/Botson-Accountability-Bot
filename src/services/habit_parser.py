@@ -12,7 +12,7 @@ BRACKET_REGEX = re.compile(r"\[(.*?)\]")
 class HabitParser:
     """Parses messages for habit-tracking bracket items and optional dates.
 
-    This class stores an EventBus instance and provides parse_message to analyze
+    This class stores an EventBus instance and provides ParseMessage to analyze
     a message's text for bracketed entries and a date.
 
     Attributes:
@@ -27,7 +27,7 @@ class HabitParser:
         """
         self.bus = bus
 
-    def parse_message(self, content: str, message_ts: datetime) -> Optional[Dict[str, Any]]:
+    def ParseMessage(self, content: str, message_ts: datetime) -> Optional[Dict[str, Any]]:
         """Parse a message for habit brackets and date.
 
         Args:

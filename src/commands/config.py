@@ -9,17 +9,37 @@ from discord import app_commands
 
 from ..services.settings import SettingsService, BLOCKED_KEYS
 
+def _HasManageGuild(interaction: discord.Interaction) -> bool:
+    """Check if the user has manage guild permission.
 
-def _has_manage_guild(interaction: discord.Interaction) -> bool:
+    Args:
+        interaction: The Discord interaction object.
+
+    Returns:
+        bool: True if the user has manage guild permission, False otherwise.
+    """
     perms = getattr(getattr(interaction, "user", None), "guild_permissions", None)
     return bool(perms and getattr(perms, "manage_guild", False))
 
 
-def register_config_commands(
+def RegisterConfigCommands(
     bot: Any,
     settings: SettingsService,
     apply_runtime_settings: Callable[[], Awaitable[None]],
 ) -> None:
+    """Register configuration management commands on the bot.
+
+    Args:
+        bot: The Discord bot instance.
+        settings: The settings service instance.
+        apply_runtime_settings: Function to apply runtime settings.
+
+    Returns:
+        None
+
+    Example:
+        RegisterConfigCommands(bot, settings, apply_settings)
+    """
     # Autocomplete helper for keys (available + existing)
     from typing import List as _List, Any as _Any
 
@@ -43,12 +63,12 @@ def register_config_commands(
     config_group = app_commands.Group(name="config", description="Manage bot configuration")
 
     @config_group.command(name="list", description="List keys that are currently set in DB")
-    async def config_list(interaction: discord.Interaction):
+    async def ConfigList(interaction: discord.Interaction):
         try:
             if not interaction.guild_id:
                 await interaction.response.send_message("Use this in a guild.", ephemeral=True)
                 return
-            if not _has_manage_guild(interaction):
+            if not _HasManageGuild(interaction):
                 await interaction.response.send_message("Missing Manage Server permission.", ephemeral=True)
                 return
             keys = settings.list_keys()
@@ -65,12 +85,12 @@ def register_config_commands(
                 await interaction.followup.send(f"Error: {e}", ephemeral=True)
 
     @config_group.command(name="available", description="List available configuration keys")
-    async def config_available(interaction: discord.Interaction):
+    async def ConfigAvailable(interaction: discord.Interaction):
         try:
             if not interaction.guild_id:
                 await interaction.response.send_message("Use this in a guild.", ephemeral=True)
                 return
-            if not _has_manage_guild(interaction):
+            if not _HasManageGuild(interaction):
                 await interaction.response.send_message("Missing Manage Server permission.", ephemeral=True)
                 return
             items = settings.get_available_with_meta()
@@ -89,12 +109,12 @@ def register_config_commands(
     @config_group.command(name="get", description="Get a setting value (DB)")
     @app_commands.describe(key="Setting key")
     @app_commands.autocomplete(key=key_autocomplete)
-    async def config_get(interaction: discord.Interaction, key: str):
+    async def ConfigGet(interaction: discord.Interaction, key: str):
         try:
             if not interaction.guild_id:
                 await interaction.response.send_message("Use this in a guild.", ephemeral=True)
                 return
-            if not _has_manage_guild(interaction):
+            if not _HasManageGuild(interaction):
                 await interaction.response.send_message("Missing Manage Server permission.", ephemeral=True)
                 return
             lowered = key.lower()
@@ -119,12 +139,12 @@ def register_config_commands(
     @config_group.command(name="set", description="Set a setting value (JSON or primitive)")
     @app_commands.describe(key="Setting key", value="JSON or primitive value")
     @app_commands.autocomplete(key=key_autocomplete)
-    async def config_set(interaction: discord.Interaction, key: str, value: str):
+    async def ConfigSet(interaction: discord.Interaction, key: str, value: str):
         try:
             if not interaction.guild_id:
                 await interaction.response.send_message("Use this in a guild.", ephemeral=True)
                 return
-            if not _has_manage_guild(interaction):
+            if not _HasManageGuild(interaction):
                 await interaction.response.send_message("Missing Manage Server permission.", ephemeral=True)
                 return
             lowered = key.lower()
@@ -160,12 +180,12 @@ def register_config_commands(
     @config_group.command(name="delete", description="Delete a setting")
     @app_commands.describe(key="Setting key")
     @app_commands.autocomplete(key=key_autocomplete)
-    async def config_delete(interaction: discord.Interaction, key: str):
+    async def ConfigDelete(interaction: discord.Interaction, key: str):
         try:
             if not interaction.guild_id:
                 await interaction.response.send_message("Use this in a guild.", ephemeral=True)
                 return
-            if not _has_manage_guild(interaction):
+            if not _HasManageGuild(interaction):
                 await interaction.response.send_message("Missing Manage Server permission.", ephemeral=True)
                 return
             lowered = key.lower()
@@ -186,11 +206,11 @@ def register_config_commands(
 
     # Keep explicit references for static analyzers
     _registered_config_commands: dict[str, object] = {
-        "list": config_list,
-        "available": config_available,
-        "get": config_get,
-        "set": config_set,
-        "delete": config_delete,
+        "list": ConfigList,
+        "available": ConfigAvailable,
+        "get": ConfigGet,
+        "set": ConfigSet,
+        "delete": ConfigDelete,
     }
     _ = _registered_config_commands
 

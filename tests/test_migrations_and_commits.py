@@ -11,7 +11,7 @@ from src.services.persistence import PersistenceService
 
 def test_migrations_create_db_and_tables(db: Database) -> None:
     # Smoke-check that a basic query works and tables exist
-    session: Session = db.get_session()
+    session: Session = db.GetSession()
     try:
         session.query(Channel).first()
         session.query(Message).first()
@@ -21,7 +21,7 @@ def test_migrations_create_db_and_tables(db: Database) -> None:
 
 def test_inserts_and_commits(db: Database) -> None:
     # Insert a channel and a message and ensure counts increase
-    session: Session = db.get_session()
+    session: Session = db.GetSession()
     try:
         if not session.query(Channel).filter(Channel.discord_channel_id == "12345").first():
             session.add(Channel(discord_channel_id="12345", registered_by="tester", active=True))
@@ -61,7 +61,7 @@ def test_inserts_and_commits(db: Database) -> None:
 
     storage.recompute_daily_scores(channel_discord_id=12345, date="2024-01-01")
 
-    session = db.get_session()
+    session = db.GetSession()
     try:
         msg = session.query(Message).filter(Message.discord_message_id == "111").first()
         assert msg is not None
@@ -99,17 +99,18 @@ def test_diagnostics_reports_ok(db: Database) -> None:
 def test_migration_creates_db_when_dir_missing(tmp_path: Path) -> None:
     import os
     from src.db.connection import Database
-    from src.db.migrations import ensure_migrated
+    from src.db.migrations import EnsureMigrated
 
     nested = tmp_path / "nested" / "deep"
     db_path = nested / "created.db"
-    ensure_migrated(str(db_path))
-    assert os.path.exists(db_path), "Database file should be created by ensure_migrated()"
+    EnsureMigrated(str(db_path))
+    assert os.path.exists(db_path), "Database file should be created by EnsureMigrated()"
 
     # Idempotency: calling again should not raise and schema_version should have at least one row
-    ensure_migrated(str(db_path))
+    EnsureMigrated(str(db_path))
+
     database = Database(str(db_path))
-    session = database.get_session()
+    session = database.GetSession()
     try:
         rows = session.execute(__import__("sqlalchemy").text("SELECT COUNT(1) FROM schema_version")).scalar_one()
         assert rows >= 1

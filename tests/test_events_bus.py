@@ -22,9 +22,9 @@ async def test_event_bus_subscribe_and_emit_order() -> None:
     async def h2(ev: Event):
         await _collect(calls, "h2", ev)
 
-    bus.subscribe("A", h1)
-    bus.subscribe("A", h2)
-    ev = await bus.emit("A", {"x": 1}, {})
+    bus.Subscribe("A", h1)
+    bus.Subscribe("A", h2)
+    ev = await bus.Emit("A", {"x": 1}, {})
 
     assert ev.type == "A"
     assert ev.payload == {"x": 1}
@@ -44,11 +44,11 @@ async def test_event_bus_wildcard_and_propagation() -> None:
     async def wildcard(ev: Event):
         await _collect(calls, "wild", ev)
 
-    bus.subscribe("A", raising)
-    bus.subscribe_all(wildcard)
+    bus.Subscribe("A", raising)
+    bus.SubscribeAll(wildcard)
 
     with pytest.raises(RuntimeError):  # type: ignore
-        await bus.emit("A", {}, {})
+        await bus.Emit("A", {}, {})
 
     # Raising handler stops before wildcard execution
     assert calls == []

@@ -160,11 +160,18 @@ class GuildSetting(Base):
 
 
 class Setting(Base):
-    """Global key/value configuration settings for the bot.
+    """Key-value settings stored in DB for runtime overrides.
     """
     __tablename__ = 'settings'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    key = Column(String, unique=True, nullable=False)
-    value = Column(Text, nullable=False)
+    key = Column(String, nullable=False, unique=True)
+    value = Column(Text, nullable=False, default='')
+    created_at = Column(DateTime, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
     updated_at = Column(DateTime, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+
+    # Indexes and constraints
+    __table_args__ = (
+        UniqueConstraint('key'),
+        Index('idx_settings_key', 'key'),
+    )

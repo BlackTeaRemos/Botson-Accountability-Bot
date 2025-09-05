@@ -6,15 +6,28 @@ from discord import app_commands
 from ..services.persistence import PersistenceService
 
 
-def register_debug_commands(
+def RegisterDebugCommands(
     bot: Any,
     storage: PersistenceService,
     generate_random_user_recent: Callable[..., Dict[str, Any]],
 ) -> None:
+    """Register debug and developer utility commands on the bot.
+
+    Args:
+        bot: The Discord bot instance.
+        storage: The persistence service instance.
+        generate_random_user_recent: Function to generate test user data.
+
+    Returns:
+        None
+
+    Example:
+        RegisterDebugCommands(bot, storage, generate_func)
+    """
     debug_group = app_commands.Group(name="debug", description="Developer utilities")
 
     @debug_group.command(name="add_score", description="Add raw score delta to user for a date")
-    async def debug_add_score(interaction: discord.Interaction, user_id: str, date: str, delta: float):
+    async def DebugAddScore(interaction: discord.Interaction, user_id: str, date: str, delta: float):
         try:
             cid = interaction.channel_id
             if cid is None:
@@ -32,7 +45,7 @@ def register_debug_commands(
                 await interaction.followup.send(f"Error: {e}", ephemeral=True)
 
     @debug_group.command(name="remove_score", description="Remove raw score delta from user for a date")
-    async def debug_remove_score(interaction: discord.Interaction, user_id: str, date: str, delta: float):
+    async def DebugRemoveScore(interaction: discord.Interaction, user_id: str, date: str, delta: float):
         try:
             cid = interaction.channel_id
             if cid is None:
@@ -50,7 +63,7 @@ def register_debug_commands(
                 await interaction.followup.send(f"Error: {e}", ephemeral=True)
 
     @debug_group.command(name="user_info", description="Show recent daily stats for a user")
-    async def debug_user_info(interaction: discord.Interaction, user_id: str):
+    async def DebugUserInfo(interaction: discord.Interaction, user_id: str):
         try:
             cid = interaction.channel_id
             if cid is None:
@@ -84,7 +97,7 @@ def register_debug_commands(
                 await interaction.followup.send(f"Error: {e}", ephemeral=True)
 
     @debug_group.command(name="purge_bad_dates", description="Purge non-ISO date rows for this channel")
-    async def debug_purge_bad_dates(interaction: discord.Interaction):
+    async def DebugPurgeBadDates(interaction: discord.Interaction):
         try:
             cid = interaction.channel_id
             if cid is None:
@@ -94,7 +107,7 @@ def register_debug_commands(
                 await interaction.response.send_message("Channel not registered.", ephemeral=True)
                 return
             await interaction.response.defer(ephemeral=True, thinking=True)
-            deleted = storage.purge_non_iso_dates(cid)
+            deleted, _deleted_dates = storage.purge_non_iso_dates(cid)
             await interaction.followup.send(
                 f"Purge complete. Deleted {deleted} daily rows (and related per-message scores).",
                 ephemeral=True,
@@ -106,7 +119,7 @@ def register_debug_commands(
                 await interaction.followup.send(f"Purge failed: {e}", ephemeral=True)
 
     @debug_group.command(name="generate_user", description="Generate clustered test user messages for this channel")
-    async def debug_generate_user(
+    async def DebugGenerateUser(
         interaction: discord.Interaction,
         user_id: str | None = None,
         messages: int = 5,
@@ -144,10 +157,10 @@ def register_debug_commands(
 
     # References for analyzers
     _registered_debug_commands: dict[str, object] = {
-        "add_score": debug_add_score,
-        "remove_score": debug_remove_score,
-        "user_info": debug_user_info,
-        "purge_bad_dates": debug_purge_bad_dates,
-        "generate_user": debug_generate_user,
+        "add_score": DebugAddScore,
+        "remove_score": DebugRemoveScore,
+        "user_info": DebugUserInfo,
+        "purge_bad_dates": DebugPurgeBadDates,
+        "generate_user": DebugGenerateUser,
     }
     _ = _registered_debug_commands

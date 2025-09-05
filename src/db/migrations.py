@@ -12,7 +12,7 @@ from .models import Base
 
 # Use metadata from models
 metadata = Base.metadata
-def generate_migration_sql() -> str:
+def GenerateMigrationSql() -> str:
     """Generate SQL DDL statements from SQLAlchemy metadata.
     
     Returns:
@@ -43,7 +43,22 @@ def generate_migration_sql() -> str:
 MIGRATIONS: list[tuple[int, str]] = [
     (
         1,
-        generate_migration_sql(),
+        GenerateMigrationSql(),
+    ),
+    (
+        2,
+        """
+        CREATE TABLE IF NOT EXISTS settings (
+            id INTEGER NOT NULL, 
+            key VARCHAR NOT NULL, 
+            value TEXT NOT NULL DEFAULT '', 
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, 
+            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, 
+            PRIMARY KEY (id), 
+            UNIQUE (key)
+        );
+        CREATE INDEX IF NOT EXISTS idx_settings_key ON settings (key);
+        """,
     ),
     # Migration 2: add settings table for runtime config (excludes secrets like token)
     (
@@ -62,7 +77,7 @@ MIGRATIONS: list[tuple[int, str]] = [
 ]
 
 
-def ensure_migrated(database_path: str) -> None:
+def EnsureMigrated(database_path: str) -> None:
     """Ensure the database is migrated to the latest schema version.
 
     Connects to the database, checks the current schema version, and applies

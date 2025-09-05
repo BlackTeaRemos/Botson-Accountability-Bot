@@ -5,6 +5,7 @@ from typing import List, Dict, Tuple, Any
 import pandas as pd
 import matplotlib.pyplot as plt
 from sqlalchemy.orm import Session
+
 from ..db.connection import Database
 from ..db.models import HabitDailyScore
 from ..core.config import AppConfig
@@ -22,38 +23,39 @@ class ReportingService:
     def _fetch_raw_scores(self, days: int) -> List[Dict[str, Any]]:
         """Return daily aggregate rows for the last `days` distinct dates present.
         """
-        session: Session = self.db.get_session()
+        session: Session = self.db.GetSession()
         try:
-            # Fetch all rows ordered by date ascending
+            # Query using SQLAlchemy ORM – fetch all and order by date
             scores = (
                 session.query(HabitDailyScore)
                 .order_by(HabitDailyScore.date.asc())
                 .all()
             )
-
-            # Determine the last N distinct dates
-            all_dates_sorted: List[str] = []
-            seen: set[str] = set()
-            for s in scores:
-                d = str(getattr(s, 'date'))
-                if d not in seen:
-                    seen.add(d)
-                    all_dates_sorted.append(d)
-            if days > 0:
-                keep_set = set(all_dates_sorted[-days:])
-            else:
-                keep_set = set(all_dates_sorted)
-
-            # Convert to dictionary format, filtering by selected dates
-            return [
-                {
-                    'user_id': score.user_id,
-                    'date': score.date,
-                    'raw_score_sum': float(getattr(score, 'raw_score_sum') or 0.0),
-                }
-                for score in scores
-                if str(getattr(score, 'date')) in keep_set
-            ]
+            # Convert to dictionary format matching the original structure
+            result: List[Dict[str, Any]] = []
+            for score in scores:
+                # Explicitly convert to builtin types for stable typing
+                result.append({
+                    'user_id': str(score.user_id),
+                    'date': str(score.date),
+                    'raw_score_sum': float(cast(Any, score).raw_score_sum),  # type: ignore[arg-type]
+                })
+            # Fallback: if ORM returned no rows
+            if not result:
+                raw_rows = self.db.QueryRaw(
+                    "SELECT user_id, date, raw_score_sum FROM habit_daily_scores ORDER BY date ASC"
+                )
+                for user_id, date_str, raw_sum in raw_rows:
+                    try:
+                        result.append({
+                            'user_id': str(user_id),
+                            'date': str(date_str),
+                            'raw_score_sum': float(raw_sum),
+                        })
+                    except Exception:
+                        # Skip malformed raw rows silently; normalization will handle typical cases
+                        continue
+            return result
         finally:
             session.close()
 
@@ -133,7 +135,9 @@ class ReportingService:
             return BytesIO(), [], []
         normalized, warnings = self._normalize(rows)
         # Use dates from the normalized result (these were repaired to ISO) instead
-        all_dates = sorted({d for user_map in normalized.values() for d in user_map.keys()})
+        all_dates_full = sorted({d for user_map in normalized.values() for d in user_map.keys()})
+        # Keep the last `days` unique dates present in data (not relative to today)
+        all_dates = all_dates_full[-days:] if days and days > 0 else all_dates_full
         if not all_dates:
             return BytesIO(), [], warnings
         data: List[List[Any]] = []
@@ -253,7 +257,9 @@ class ReportingService:
             return [], [], {}, []
         normalized, warnings = self._normalize(rows)
         # Use dates from normalized (ISO YYYY-MM-DD) to avoid raw DB formatting quirks
-        all_dates = sorted({d for user_map in normalized.values() for d in user_map.keys()})
+        all_dates_full = sorted({d for user_map in normalized.values() for d in user_map.keys()})
+        # Keep the last `days` unique dates present in data
+        all_dates = all_dates_full[-days:] if days and days > 0 else all_dates_full
         if not all_dates:
             return [], [], {}, warnings
         per_user: List[Dict[str, float | str]] = []

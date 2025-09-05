@@ -8,13 +8,12 @@ try:
 except Exception:
     pass
 
-from src.db.migrations import ensure_migrated
+from src.db.migrations import EnsureMigrated
 from src.db.connection import Database
 from typing import Iterator, Any
 from sqlalchemy.orm import Session
 from src.db.models import Channel
 from src.services.persistence import PersistenceService
-
 
 @pytest.fixture()  # type: ignore
 def temp_db_path(tmp_path_factory: Any) -> Iterator[str]:
@@ -34,10 +33,10 @@ def temp_db_path(tmp_path_factory: Any) -> Iterator[str]:
 @pytest.fixture()  # type: ignore
 def db(temp_db_path: str) -> Database:
     # Run migrations and return Database instance
-    ensure_migrated(temp_db_path)
+    EnsureMigrated(temp_db_path)
     database = Database(temp_db_path)
     # Ensure ORM create_all is idempotent
-    database.create_tables()
+    database.CreateTables()
     return database
 
 
@@ -50,7 +49,7 @@ def storage(db: Database) -> PersistenceService:
 @pytest.fixture()  # type: ignore
 def seed_channel(db: Database) -> int:
     """Insert and return a test channel discord id that is active."""
-    session: Session = db.get_session()
+    session: Session = db.GetSession()
     try:
         if not session.query(Channel).filter(Channel.discord_channel_id == "12345").first():
             session.add(Channel(discord_channel_id="12345", registered_by="tester", active=True))

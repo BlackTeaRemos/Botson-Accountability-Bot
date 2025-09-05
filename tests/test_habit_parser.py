@@ -9,7 +9,8 @@ from src.services.habit_parser import HabitParser
 def test_habit_parser_extracts_date_and_brackets() -> None:
     hp = HabitParser(EventBus())
     ts = datetime(2025, 1, 2, tzinfo=timezone.utc)
-    result = hp.parse_message("Did stuff [x] and [ ] on Jan 2", ts)
+    result = hp.ParseMessage("Did stuff [x] and [ ] on Jan 2", ts)
+    
     assert result is not None
     assert result["extracted_date"] == "2025-01-02"
     assert result["raw_bracket_count"] == 2
@@ -20,14 +21,16 @@ def test_habit_parser_extracts_date_and_brackets() -> None:
 def test_habit_parser_handles_no_brackets() -> None:
     hp = HabitParser(EventBus())
     ts = datetime.now(timezone.utc)
-    assert hp.parse_message("No brackets here", ts) is None
+    assert hp.ParseMessage("No brackets here", ts) is None
+
 
 
 def test_habit_parser_confidence_scales_with_count() -> None:
     hp = HabitParser(EventBus())
     ts = datetime(2025, 1, 2, tzinfo=timezone.utc)
-    many = hp.parse_message(" ".join(["[x]"] * 10) + " Jan 2", ts)
-    few = hp.parse_message("[x] Jan 2", ts)
+    many = hp.ParseMessage(" ".join(["[x]"] * 10) + " Jan 2", ts)
+    few = hp.ParseMessage("[x] Jan 2", ts)
+    
     assert many is not None and few is not None
     assert many["confidence"] >= few["confidence"]
 
@@ -38,7 +41,8 @@ def test_parse_message_with_date_and_brackets() -> None:
     # Content with 3 brackets, two filled, includes month name with ordinal suffix
     content = "I did things [x] [ ] [done] on Jan 2nd"
     msg_ts = datetime(2024, 1, 3, 12, 0, 0, tzinfo=timezone.utc)
-    parsed = parser.parse_message(content, msg_ts)
+    parsed = parser.ParseMessage(content, msg_ts)
+  
     assert parsed is not None
     assert parsed["extracted_date"] == "2024-01-02"
     assert parsed["raw_bracket_count"] == 3
@@ -53,7 +57,8 @@ def test_parse_message_without_date() -> None:
     parser = HabitParser(bus)
     content = "[] [] []"
     msg_ts = datetime(2024, 1, 3, 12, 0, 0, tzinfo=timezone.utc)
-    parsed = parser.parse_message(content, msg_ts)
+    parsed = parser.ParseMessage(content, msg_ts)
+
     assert parsed is not None
     assert parsed["extracted_date"] is None
     assert parsed["raw_bracket_count"] == 3
@@ -64,4 +69,5 @@ def test_parse_message_without_date() -> None:
 def test_parse_message_without_brackets_returns_none() -> None:
     bus = EventBus()
     parser = HabitParser(bus)
-    assert parser.parse_message("no brackets here", datetime(2024, 1, 3, tzinfo=timezone.utc)) is None
+    assert parser.ParseMessage("no brackets here", datetime(2024, 1, 3, tzinfo=timezone.utc)) is None
+

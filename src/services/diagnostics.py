@@ -16,7 +16,7 @@ class DiagnosticsService:
     async def run_startup(self, version: str = "0.1.0"):
         results = self.collect()
         payload: Dict[str, Any] = {"version": version, "results": results}
-        await self.bus.emit("DiagnosticsCompleted", payload, {})
+        await self.bus.Emit("DiagnosticsCompleted", payload, {})
 
     def collect(self) -> Dict[str, Any]:
         """Collect a synchronous snapshot of diagnostics information.
@@ -26,7 +26,7 @@ class DiagnosticsService:
         results: Dict[str, Any] = {}
         
         # DB accessibility - test with a simple ORM query
-        session = self.db.get_session()
+        session = self.db.GetSession()
         try:
             session.query(Channel).first()  # Simple test query
             results["database"] = {"status": "ok"}
@@ -59,7 +59,7 @@ class DiagnosticsService:
             pass
         
         # Basic counts using SQLAlchemy ORM
-        session = self.db.get_session()
+        session = self.db.GetSession()
         try:
             counts: Dict[str, Any] = {}
             

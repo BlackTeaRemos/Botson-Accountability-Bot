@@ -11,15 +11,30 @@ from ..services.channel_registration import ChannelRegistrationService
 from ..core.config import AppConfig
 
 
-def register_reporting_commands(
+def RegisterReportingCommands(
     bot: Any,
     storage: PersistenceService,
     reporting: ReportingService,
     channels: ChannelRegistrationService,
     config: AppConfig,
 ) -> None:
+    """Register reporting-related slash commands on the bot.
+
+    Args:
+        bot: The Discord bot instance.
+        storage: The persistence service instance.
+        reporting: The reporting service instance.
+        channels: The channel registration service instance.
+        config: The application configuration.
+
+    Returns:
+        None
+
+    Example:
+        RegisterReportingCommands(bot, storage, reporting, channels, config)
+    """
     # ----- Internal implementations to allow reuse between top-level and grouped commands -----
-    async def _weekly_report_impl(interaction: discord.Interaction) -> None:
+    async def _WeeklyReportImpl(interaction: discord.Interaction) -> None:
         try:
             guild_style = None
             if interaction.guild_id:
@@ -64,8 +79,9 @@ def register_reporting_commands(
                     await interaction.followup.send(f"Error generating report: {e}", ephemeral=True)
             except Exception:
                 print(f"[weekly_report] Failed to send error response: {e}")
+    pass
 
-    async def _weekly_embed_impl(interaction: discord.Interaction) -> None:
+    async def _WeeklyEmbedImpl(interaction: discord.Interaction) -> None:
         try:
             channel_id = interaction.channel_id
             if channel_id is None:
@@ -129,8 +145,10 @@ def register_reporting_commands(
                 await interaction.response.send_message(f"Embed report error: {e}", ephemeral=True)
             else:
                 await interaction.followup.send(f"Embed report error: {e}", ephemeral=True)
+    # No-op
+    pass
 
-    async def _set_report_style_impl(interaction: discord.Interaction, style: str) -> None:
+    async def _SetReportStyleImpl(interaction: discord.Interaction, style: str) -> None:
         valid = {"style1","style2","style3","style4"}
         if style not in valid:
             await interaction.response.send_message(f"Invalid style. Choose one of: {', '.join(sorted(valid))}.", ephemeral=True)
@@ -140,8 +158,10 @@ def register_reporting_commands(
             return
         storage.set_guild_report_style(interaction.guild_id, style)
         await interaction.response.send_message(f"Report style set to {style}.", ephemeral=True)
+    # No-op
+    pass
 
-    async def _clear_week_impl(interaction: discord.Interaction) -> None:
+    async def _ClearWeekImpl(interaction: discord.Interaction) -> None:
         try:
             channel_id = interaction.channel_id
             if channel_id is None:
@@ -157,8 +177,10 @@ def register_reporting_commands(
                 await interaction.response.send_message(f"Clear failed: {e}", ephemeral=True)
             else:
                 await interaction.followup.send(f"Clear failed: {e}", ephemeral=True)
+    # No-op
+    pass
 
-    async def _backfill_impl(interaction: discord.Interaction) -> None:
+    async def _BackfillImpl(interaction: discord.Interaction) -> None:
         try:
             await interaction.response.defer(ephemeral=True, thinking=True)
             channel_id = interaction.channel_id
@@ -186,20 +208,20 @@ def register_reporting_commands(
     report_group = app_commands.Group(name="report", description="Reporting commands")
 
     @report_group.command(name="weekly", description="Generate a weekly report image (normalized scores)")
-    async def report_weekly(interaction: discord.Interaction):
-        await _weekly_report_impl(interaction)
+    async def ReportWeekly(interaction: discord.Interaction):
+        await _WeeklyReportImpl(interaction)
 
     @report_group.command(name="embed", description="Generate weekly report as an embed (no image)")
-    async def report_embed(interaction: discord.Interaction):
-        await _weekly_embed_impl(interaction)
+    async def ReportEmbed(interaction: discord.Interaction):
+        await _WeeklyEmbedImpl(interaction)
 
     @report_group.command(name="clear_week", description="Clear current week's daily scores for this channel")
-    async def report_clear_week(interaction: discord.Interaction):
-        await _clear_week_impl(interaction)
+    async def ReportClearWeek(interaction: discord.Interaction):
+        await _ClearWeekImpl(interaction)
 
     @report_group.command(name="backfill", description="Backfill last 7 days of messages for this channel")
-    async def report_backfill(interaction: discord.Interaction):
-        await _backfill_impl(interaction)
+    async def ReportBackfill(interaction: discord.Interaction):
+        await _BackfillImpl(interaction)
 
     # Subgroup: /report style set
     style_group = app_commands.Group(name="style", description="Report style commands", parent=report_group)
@@ -216,18 +238,18 @@ def register_reporting_commands(
             Choice(name="style4", value="style4"),
         ]
     )
-    async def report_style_set(interaction: discord.Interaction, style: str):
-        await _set_report_style_impl(interaction, style)
+    async def ReportStyleSet(interaction: discord.Interaction, style: str):
+        await _SetReportStyleImpl(interaction, style)
 
     # Finally, add the group (and its subgroup) to the bot tree
     bot.tree.add_command(report_group)
 
     # Keep explicit references to subcommand callables to appease static analyzers
     _registered_report_commands: dict[str, object] = {
-        "weekly": report_weekly,
-        "embed": report_embed,
-        "clear_week": report_clear_week,
-        "backfill": report_backfill,
-        "style_set": report_style_set,
+        "weekly": ReportWeekly,
+        "embed": ReportEmbed,
+        "clear_week": ReportClearWeek,
+        "backfill": ReportBackfill,
+        "style_set": ReportStyleSet,
     }
     _ = _registered_report_commands

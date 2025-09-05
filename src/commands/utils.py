@@ -1,13 +1,10 @@
 """Small utilities used by command modules.
-
-This module provides helpers for serializing and formatting data for display
-in Discord messages and logs.
 """
 
 from typing import Any, Dict, cast
 
 
-def json_dumps_compact(data: Any) -> str:
+def JsonDumpsCompact(data: Any) -> str:
     """Serialize `data` to compact JSON with stable key ordering.
 
     Args:
@@ -21,7 +18,7 @@ def json_dumps_compact(data: Any) -> str:
     return json.dumps(data, separators=(",", ":"), sort_keys=True)
 
 
-def format_diagnostics_markdown(snapshot: Dict[str, Any]) -> str:
+def FormatDiagnosticsMarkdown(snapshot: Dict[str, Any]) -> str:
     """Render a concise, human-readable diagnostics summary for Discord.
 
     The returned string is plain text with simple sections. It is designed to
@@ -34,7 +31,7 @@ def format_diagnostics_markdown(snapshot: Dict[str, Any]) -> str:
         str: Readable diagnostics summary suitable for sending as a message.
 
     Examples:
-        >>> fmt = format_diagnostics_markdown({
+        >>> fmt = FormatDiagnosticsMarkdown({
         ...     "database": {"status": "ok"},
         ...     "counts": {"channels": 2, "messages": 10, "habit_daily_scores": 5},
         ...     "disk": {"free_mb": 15360},

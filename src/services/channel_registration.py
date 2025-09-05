@@ -19,7 +19,7 @@ class ChannelRegistrationService:
 
     def _insert_channel(self, discord_channel_id: int, registered_by: int):
         """Insert or update a channel registration."""
-        session: Session = self.db.get_session()
+        session: Session = self.db.GetSession()
         try:
             # Check if channel already exists
             existing_channel = session.query(Channel).filter(
@@ -28,8 +28,8 @@ class ChannelRegistrationService:
 
             if existing_channel:
                 # Update existing channel to active
-                existing_channel.active = True
-                existing_channel.registered_by = str(registered_by)
+                existing_channel.active = True  # type: ignore[assignment]
+                existing_channel.registered_by = str(registered_by)  # type: ignore[assignment]
             else:
                 # Create new channel
                 channel = Channel(
@@ -46,7 +46,7 @@ class ChannelRegistrationService:
     async def register(self, discord_channel_id: int, user_id: int, backfill_days: Optional[int] = None):
         days = backfill_days or self.backfill_days
         self._insert_channel(discord_channel_id, user_id)
-        await self.bus.emit(
+        await self.bus.Emit(
             "ChannelRegistered",
             {
                 "channel_id": discord_channel_id,
@@ -56,7 +56,7 @@ class ChannelRegistrationService:
             {},
         )
         # TODO Actually implement this
-        await self.bus.emit(
+        await self.bus.Emit(
             "BackfillScheduled",
             {
                 "channel_id": discord_channel_id,
@@ -79,7 +79,7 @@ class ChannelRegistrationService:
         async for msg in channel.history(limit=limit, after=since_dt, oldest_first=True):
             if msg.author.bot:
                 continue
-            await self.bus.emit(
+            await self.bus.Emit(
                 "MessageReceived",
                 {
                     "discord_message_id": msg.id,

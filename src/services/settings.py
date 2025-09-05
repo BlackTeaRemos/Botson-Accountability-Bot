@@ -72,7 +72,7 @@ class SettingsService:
 
     def list_keys(self) -> list[str]:
         """Return all existing setting keys (excluding blocked)."""
-        session: Session = self.db.get_session()
+        session: Session = self.db.GetSession()
         try:
             rows = session.query(Setting.key).order_by(Setting.key.asc()).all()
             keys = [k for (k,) in rows if k not in BLOCKED_KEYS]
@@ -94,7 +94,7 @@ class SettingsService:
     def get(self, key: str) -> Optional[Any]:
         """Return the value for key or None if absent. Raises on blocked."""
         self._ensure_key_allowed(key)
-        session: Session = self.db.get_session()
+        session: Session = self.db.GetSession()
         try:
             row = session.query(Setting).filter(Setting.key == key).first()
             if not row:
@@ -118,7 +118,7 @@ class SettingsService:
         self._ensure_key_allowed(key)
         self._validate_key_format(key)
         payload = json.dumps(value)
-        session: Session = self.db.get_session()
+        session: Session = self.db.GetSession()
         try:
             row = session.query(Setting).filter(Setting.key == key).first()
             if row:
@@ -137,7 +137,7 @@ class SettingsService:
     def delete(self, key: str) -> bool:
         """Delete a setting. Returns True if a row was removed. Raises on blocked."""
         self._ensure_key_allowed(key)
-        session: Session = self.db.get_session()
+        session: Session = self.db.GetSession()
         try:
             row = session.query(Setting).filter(Setting.key == key).first()
             if not row:
