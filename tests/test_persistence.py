@@ -90,3 +90,61 @@ def test_update_message_content_resets_parse(db: Database, seed_channel: int) ->
         assert msg.extracted_date is None
     finally:
         session.close()
+
+
+def test_debug_delete_test_users(db: Database, seed_channel: int) -> None:
+    storage = PersistenceService(db)
+    session: Session = db.GetSession()
+    
+    try:
+        # Create some test user data
+        test_user_id = "testuser_12345"
+        
+        # Insert a test message (author_id must be int for the function, but stored as string)
+        storage.insert_message(1999, seed_channel, 12345, test_user_id, "2024-01-01T12:00:00", "[x] Test habit")
+        storage.update_habit_parse(1999, 1, 1, 0.9, "2024-01-01")
+        storage.insert_or_replace_message_score(1999, test_user_id, "2024-01-01", seed_channel, 1.0, 1, 1)
+        storage.recompute_daily_scores(seed_channel, "2024-01-01")
+        
+        # Delete test users
+        deleted_counts = storage.debug_delete_test_users(seed_channel)
+        
+        # Verify data is deleted
+        assert deleted_counts["messages"] == 1
+        assert deleted_counts["daily_scores"] == 1
+        
+    finally:
+        session.close()
+
+
+def test_debug_delete_all_user_data(db: Database, seed_channel: int) -> None:
+    storage = PersistenceService(db)
+    session: Session = db.GetSession()
+    
+    try:
+        # Create some user data (both test and regular users)
+        test_user_id = "testuser_12345"
+        regular_user_id = "regular_user_67890"
+        
+        # Insert test user message
+        storage.insert_message(2999, seed_channel, 12345, test_user_id, "2024-01-01T12:00:00", "[x] Test habit")
+        storage.update_habit_parse(2999, 1, 1, 0.9, "2024-01-01")
+        storage.insert_or_replace_message_score(2999, test_user_id, "2024-01-01", seed_channel, 1.0, 1, 1)
+        
+        # Insert regular user message
+        storage.insert_message(3000, seed_channel, 67890, regular_user_id, "2024-01-02T12:00:00", "[x] Regular habit")
+        storage.update_habit_parse(3000, 1, 1, 0.9, "2024-01-02")
+        storage.insert_or_replace_message_score(3000, regular_user_id, "2024-01-02", seed_channel, 1.0, 1, 1)
+        
+        storage.recompute_daily_scores(seed_channel, "2024-01-01")
+        storage.recompute_daily_scores(seed_channel, "2024-01-02")
+        
+        # Delete ALL user data
+        deleted_counts = storage.debug_delete_all_user_data(seed_channel)
+        
+        # Verify all data is deleted
+        assert deleted_counts["messages"] == 2
+        assert deleted_counts["daily_scores"] == 2
+        
+    finally:
+        session.close()
