@@ -49,10 +49,19 @@ def RegisterReportingCommands(
                 deleted_count, deleted_list = storage.purge_non_iso_dates(channel_id)
                 deleted_list_str = ', '.join(deleted_list[:10]) + (', ...' if len(deleted_list) > 10 else '')
                 purge_prefix = f"Purged {deleted_count} malformed daily rows (dates: {deleted_list_str}).\n"
-            buf, dates, warnings = reporting.generate_weekly_table_image(days=7, style=guild_style or "style1")
+            # Fetch user names for display
+            user_names = {}
+            if interaction.guild:
+                try:
+                    # Get all members to build name map
+                    members = interaction.guild.members
+                    user_names = {str(member.id): member.display_name for member in members}
+                except Exception:
+                    pass  # If fetching fails, fall back to IDs
+            buf, dates, warnings = reporting.generate_weekly_table_image(days=7, style=guild_style or "style1", user_names=user_names)
             if any('Dropped row' in w or 'Dropped' in w for w in warnings):
                 deleted, deleted_dates = storage.purge_non_iso_dates(channel_id)
-                buf, dates, warnings = reporting.generate_weekly_table_image(days=7, style=guild_style or "style1")
+                buf, dates, warnings = reporting.generate_weekly_table_image(days=7, style=guild_style or "style1", user_names=user_names)
                 if deleted_dates:
                     deleted_list_str = ', '.join(deleted_dates[:10]) + (', ...' if len(deleted_dates) > 10 else '')
                     purge_note = f"\nNote: purged {deleted} malformed daily rows (dates: {deleted_list_str}) before rendering."
@@ -107,39 +116,33 @@ def RegisterReportingCommands(
             if not dates:
                 await interaction.response.send_message("No data for last 7 days yet.", ephemeral=True)
                 return
-            human_dates = [datetime.strptime(d, '%Y-%m-%d').strftime('%b %d') for d in dates]
-            embed = discord.Embed(title="Weekly Habit Report", description=f"Last {len(dates)} days", color=0x5865F2)
-            lines: list[str] = []
-            for user_entry in per_user:
+            # Prepare human-readable dates
+            human_dates = [datetime.strptime(d, '%Y-%m-%d').strftime('%a ') for d in dates]
+            # Build individual embeds for top 9 users sorted by total descending
+            embeds: list[discord.Embed] = []
+            for user_entry in per_user[:9]:
                 uid = str(user_entry['user_id'])
                 display = f"<@{uid}>" if uid.isdigit() else uid[:8]
-                day_scores = [f"{user_entry.get(d,0):.1f}" for d in dates]
-                total = user_entry['total']
-                lines.append(f"{display} | {' '.join(day_scores)} | {total:.1f}")
-            chunk: list[str] = []
-            current_len = 0
-            for line in lines:
-                if current_len + len(line) + 1 > 950 and chunk:
-                    embed.add_field(name="Players", value="\n".join(chunk), inline=False)
-                    chunk = []
-                    current_len = 0
-                chunk.append(line)
-                current_len += len(line) + 1
-            if chunk:
-                embed.add_field(name="Players", value="\n".join(chunk), inline=False)
-            totals_line = ' '.join(f"{totals[d]:.1f}" for d in dates)
-            embed.add_field(name="Dates", value=' '.join(human_dates), inline=False)
-            embed.add_field(name="Totals", value=totals_line, inline=False)
+                if len(display) > 15:
+                    display = display[:12] + '...'
+                day_scores = ' '.join(f"{user_entry.get(d,0):4.1f}" for d in dates)
+                total_val = user_entry['total']
+                emb = discord.Embed(title=f"{display} Weekly Report", description=f"Last {len(dates)} days", color=0x5865F2)
+                emb.add_field(name="Dates", value=' '.join(human_dates), inline=False)
+                emb.add_field(name="Scores", value=day_scores, inline=False)
+                emb.add_field(name="Total", value=f"{total_val:.1f}", inline=False)
+                embeds.append(emb)
+            # Summary embed with totals and warnings
+            summary = discord.Embed(title="Weekly Summary", description=f"Top {min(len(per_user),9)} players", color=0x57F287)
+            summary.add_field(name="Dates", value=' '.join(human_dates), inline=False)
+            summary.add_field(name="Totals", value=' '.join(f"{totals[d]:.1f}" for d in dates), inline=False)
             if warnings:
                 warn_join = "\n".join(warnings[:5]) + ("\n..." if len(warnings) > 5 else "")
-                embed.add_field(name="Data Notes", value=warn_join[:1000], inline=False)
-                if any('Dropped row' in w or 'unparseable date' in w for w in warnings):
-                    embed.add_field(name="Action Required", value=(
-                        "Some rows were malformed and dropped. Run /debug_purge_bad_dates in this channel to remove them permanently from the database."), inline=False)
+                summary.add_field(name="Data Notes", value=warn_join[:1000], inline=False)
             if purge_prefix or purge_note:
-                # Attach purge prefix and note to embed description if present
-                embed.description = (purge_prefix or '') + (embed.description or '') + (purge_note or '')
-            await interaction.response.send_message(embed=embed, ephemeral=False)
+                summary.description = (purge_prefix or '') + (summary.description or '') + (purge_note or '')
+            embeds.append(summary)
+            await interaction.response.send_message(embeds=embeds, ephemeral=False)
         except Exception as e:
             if not interaction.response.is_done():
                 await interaction.response.send_message(f"Embed report error: {e}", ephemeral=True)

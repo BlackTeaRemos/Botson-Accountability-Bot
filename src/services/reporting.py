@@ -1,10 +1,11 @@
 from __future__ import annotations
-from datetime import datetime
+from datetime import datetime, timedelta
 from io import BytesIO
 from typing import List, Dict, Tuple, Any
 import pandas as pd
 import matplotlib.pyplot as plt
 from sqlalchemy.orm import Session
+# from sqlalchemy import text  # kept for potential future raw SQL use
 from ..db.connection import Database
 from ..db.models import HabitDailyScore
 from ..core.config import AppConfig
@@ -133,44 +134,66 @@ class ReportingService:
             }
         return normalized, warnings
 
-    def generate_weekly_table_image(self, days: int = 7, style: str = "style1") -> Tuple[BytesIO, List[str], List[str]]:
+    def generate_weekly_table_image(self, days: int = 7, style: str = "style1", user_names: Dict[str, str] | None = None) -> Tuple[BytesIO, List[str], List[str]]:
         rows = self._fetch_raw_scores(days)
         if not rows:
             return BytesIO(), [], []
         normalized, warnings = self._normalize(rows)
         # Use dates from the normalized result (these were repaired to ISO) instead
         all_dates_full = sorted({d for user_map in normalized.values() for d in user_map.keys()})
-        # Keep the last `days` unique dates present in data (not relative to today)
-        all_dates = all_dates_full[-days:] if days and days > 0 else all_dates_full
+        # Adjust to start from Monday of the latest week
+        if all_dates_full:
+            latest_date = datetime.strptime(all_dates_full[-1], '%Y-%m-%d')
+            monday = latest_date - timedelta(days=latest_date.weekday())
+            candidate_dates = [(monday + timedelta(days=i)).strftime('%Y-%m-%d') for i in range(7)]
+            all_dates = candidate_dates  # Use the full week, scores will be 0 if no data
+        else:
+            all_dates = []
+        # Keep the last `days` unique dates present in data
+        all_dates = all_dates[-days:] if days and days > 0 else all_dates
         if not all_dates:
             return BytesIO(), [], warnings
         data: List[List[Any]] = []
         # Build rows in a clearly-indented block so the analyzer knows 'row' and 'score_map' are bound
         for user_id, score_map in sorted(normalized.items(), key=lambda kv: float(sum(kv[1].values())), reverse=True):
             # score_map: Dict[str, float]
-            row: List[Any] = [user_id] + [float(score_map.get(date, 0.0)) for date in all_dates]
+            display_name = user_names.get(user_id, user_id) if user_names else user_id
+            if len(display_name) > 15:
+                display_name = display_name[:12] + '...'
+            row: List[Any] = [display_name] + [float(score_map.get(date, 0.0)) for date in all_dates]
             total_val = round(sum(float(score_map.get(date, 0.0)) for date in all_dates), 2)
             row.append(total_val)
             data.append(row)
-        columns = ['User'] + all_dates + ['Total']
+        columns = ['User'] + [datetime.strptime(d, '%Y-%m-%d').strftime('%a ') for d in all_dates] + ['Total']
         df = pd.DataFrame(data, columns=columns)
+        # Pixel-perfect sizing: 10px per character, 100 DPI
+        max_user_len = max(len(name) for name in df['User']) if not df.empty else 0
+        user_width_px = max(100, max_user_len * 10)  # Minimum 100px, 10px per character
+        weekday_px = 50  # 5 characters * 10px
+        total_px = 70    # 7 characters * 10px
+        total_width_px = user_width_px + len(all_dates) * weekday_px + total_px
+        figsize_width_inches = total_width_px / 100  # Convert to inches at 100 DPI
+        
         figure_and_axis = plt.subplots(
             figsize=(
-                max(10, 1 + 1.2 * len(columns)),
-                0.7 * len(df) + 1
-            )
+                figsize_width_inches,  # Pixel-perfect width
+                max(2, 0.5 * len(df))  # Height remains relative
+            ),
+            dpi=100  # Fixed DPI for pixel control
         )
         figure, axis = figure_and_axis  # type: ignore
         figure.patch.set_alpha(0.0)
         axis.set_facecolor('none')
         axis.axis('off')
+        # Convert DataFrame values and columns to plain Python lists to satisfy matplotlib typing
         cell_texts = df.values.tolist()
         column_labels = list(df.columns)
         table = axis.table(
             cellText=cell_texts,
             colLabels=column_labels,
             loc='center',
-            cellLoc='center'
+            cellLoc='center',
+            colWidths=[user_width_px / total_width_px] + [weekday_px / total_width_px] * len(all_dates) + [total_px / total_width_px]
         )  # type: ignore
         table.auto_set_font_size(False)
         table.set_fontsize(11)
@@ -204,7 +227,7 @@ class ReportingService:
                 edge = (0.55, 0.45, 0.30, 0.5)
             else:  # fallback style1
                 return apply_style("style1")
-            # Iterate the table cells and apply visuals.
+            # Iterate the table cells and apply visuals. Use typing.cast to Any to quiet the type checker.
             table_any = table
             for (row_i, _col_j), cell in table_any.get_celld().items():
                 cell_any = cell
@@ -233,21 +256,14 @@ class ReportingService:
                         pass
 
         apply_style(style)
-        # Tight layout not to add padding
+        # Remove all padding: expand table to full figure
+        figure.subplots_adjust(left=0, right=1, top=1, bottom=0)
+        # Save with no extra padding
         buf = BytesIO()
-        figure.savefig(
-            buf,
-            format='png',
-            bbox_inches='tight',
-            dpi=180,
-            transparent=True
-        )
+        figure.savefig(buf, format='png', bbox_inches='tight', pad_inches=0, dpi=180, transparent=True)  # type: ignore
         buf.seek(0)
         plt.close(figure)
-        human_dates = [
-            datetime.strptime(d, '%Y-%m-%d').strftime('%b %d')
-            for d in all_dates
-        ]
+        human_dates = [datetime.strptime(d, '%Y-%m-%d').strftime('%a ') for d in all_dates]
         return buf, human_dates, warnings
 
     def get_weekly_structured(self, days: int = 7) -> Tuple[List[str], List[Dict[str, float | str]], Dict[str, float], List[str]]:
@@ -262,8 +278,16 @@ class ReportingService:
         normalized, warnings = self._normalize(rows)
         # Use dates from normalized (ISO YYYY-MM-DD) to avoid raw DB formatting quirks
         all_dates_full = sorted({d for user_map in normalized.values() for d in user_map.keys()})
+        # Adjust to start from Monday of the latest week
+        if all_dates_full:
+            latest_date = datetime.strptime(all_dates_full[-1], '%Y-%m-%d')
+            monday = latest_date - timedelta(days=latest_date.weekday())
+            candidate_dates = [(monday + timedelta(days=i)).strftime('%Y-%m-%d') for i in range(7)]
+            all_dates = candidate_dates  # Use the full week, scores will be 0 if no data
+        else:
+            all_dates = []
         # Keep the last `days` unique dates present in data
-        all_dates = all_dates_full[-days:] if days and days > 0 else all_dates_full
+        all_dates = all_dates[-days:] if days and days > 0 else all_dates
         if not all_dates:
             return [], [], {}, warnings
         per_user: List[Dict[str, float | str]] = []

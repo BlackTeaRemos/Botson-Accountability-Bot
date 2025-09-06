@@ -4,7 +4,7 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, func
 from ..db.connection import Database
-from ..db.models import Channel, Message, HabitDailyScore, HabitMessageScore, GuildSetting
+from ..db.models import Channel, Message, HabitDailyScore, HabitMessageScore, GuildSetting, Report
 
 class PersistenceService:
     def __init__(self, db: Database):
@@ -503,5 +503,107 @@ class PersistenceService:
                 if not (len(date_str) == 10 and date_str[4] == '-' and date_str[7] == '-'):
                     bad.append(date_str)
             return bad
+        finally:
+            session.close()
+
+    def debug_delete_all_reports(self) -> int:
+        """Delete all reports from the database. Returns count of deleted reports."""
+        session: Session = self.db.GetSession()
+        try:
+            count = session.query(Report).count()
+            session.query(Report).delete()
+            session.commit()
+            return count
+        finally:
+            session.close()
+
+    def debug_delete_test_users(self, channel_discord_id: int) -> Dict[str, int]:
+        """Delete all test user data (messages, scores) for a channel. Returns counts of deleted items."""
+        session: Session = self.db.GetSession()
+        try:
+            channel = session.query(Channel).filter(
+                Channel.discord_channel_id == str(channel_discord_id)
+            ).first()
+
+            if not channel:
+                return {"messages": 0, "message_scores": 0, "daily_scores": 0}
+
+            # Delete messages from test users (user_ids starting with 'testuser_')
+            messages_query = session.query(Message).filter(
+                and_(
+                    Message.channel_id == channel.id,
+                    Message.author_id.like("testuser_%")
+                )
+            )
+            messages_count = messages_query.count()
+            message_ids = [msg.id for msg in messages_query.all()]
+            
+            # Delete related message scores
+            message_scores_count = 0
+            if message_ids:
+                message_scores_count = session.query(HabitMessageScore).filter(
+                    HabitMessageScore.message_id.in_(message_ids)
+                ).delete()
+            
+            # Delete daily scores for test users
+            daily_scores_count = session.query(HabitDailyScore).filter(
+                and_(
+                    HabitDailyScore.channel_id == channel.id,
+                    HabitDailyScore.user_id.like("testuser_%")
+                )
+            ).delete()
+            
+            # Delete the messages themselves
+            messages_query.delete()
+            
+            session.commit()
+            return {
+                "messages": messages_count,
+                "message_scores": message_scores_count,
+                "daily_scores": daily_scores_count
+            }
+        finally:
+            session.close()
+
+    def debug_delete_all_user_data(self, channel_discord_id: int) -> Dict[str, int]:
+        """Delete ALL user data (messages, scores) for a channel. Returns counts of deleted items.
+        """
+        session: Session = self.db.GetSession()
+        try:
+            channel = session.query(Channel).filter(
+                Channel.discord_channel_id == str(channel_discord_id)
+            ).first()
+
+            if not channel:
+                return {"messages": 0, "message_scores": 0, "daily_scores": 0}
+
+            # Delete all messages for this channel
+            messages_query = session.query(Message).filter(
+                Message.channel_id == channel.id
+            )
+            messages_count = messages_query.count()
+            message_ids = [msg.id for msg in messages_query.all()]
+            
+            # Delete related message scores
+            message_scores_count = 0
+            if message_ids:
+                message_scores_count = session.query(HabitMessageScore).filter(
+                    HabitMessageScore.message_id.in_(message_ids)
+                ).delete()
+            
+            # Delete all daily scores for this channel
+            daily_scores_count = session.query(HabitDailyScore).filter(
+                HabitDailyScore.channel_id == channel.id
+            ).delete()
+            
+            # Delete the messages themselves
+            messages_query.delete()
+            
+            session.commit()
+            return {
+                "messages": messages_count,
+                "message_scores": message_scores_count,
+                "daily_scores": daily_scores_count
+            }
         finally:
             session.close()
