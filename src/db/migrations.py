@@ -1,137 +1,38 @@
-"""Database schema migrations: generate initial DDL from ORM models and apply versions.
-"""
+"""Database schema migrations: ensure tables exist based on ORM models."""
 
-from __future__ import annotations
-
-from sqlalchemy import create_engine
-from sqlalchemy.sql import text
 import os
-
-# Import models for metadata
+from sqlalchemy import create_engine
 from .models import Base
 
-# Use metadata from models
+# Expose metadata for migration compatibility
 metadata = Base.metadata
-def GenerateMigrationSql() -> str:
-    """Generate SQL DDL statements from SQLAlchemy metadata.
-    
-    Returns:
-        Combined SQL string with all CREATE TABLE and CREATE INDEX statements.
-    """
-    from sqlalchemy.schema import CreateTable, CreateIndex
-    
-    sql_statements: list[str] = []
-    
-    # Generate CREATE TABLE statements
-    for table in metadata.sorted_tables:
-        stmt = str(CreateTable(table).compile(create_engine('sqlite://'))).strip()
-        if not stmt.endswith(";"):
-            stmt += ";"
-        sql_statements.append(stmt)
-    
-    # Generate CREATE INDEX statements for indexes not covered by table constraints
-    for table in metadata.sorted_tables:
-        for index in table.indexes:
-            if not index._column_flag:  # Skip implicit indexes from unique constraints
-                stmt = str(CreateIndex(index).compile(create_engine('sqlite://'))).strip()
-                if not stmt.endswith(";"):
-                    stmt += ";"
-                sql_statements.append(stmt)
-    
-    return '\n'.join(sql_statements)
-
-MIGRATIONS: list[tuple[int, str]] = [
-    (
-        1,
-        GenerateMigrationSql(),
-    ),
-    (
-        2,
-        """
-        CREATE TABLE IF NOT EXISTS settings (
-            id INTEGER NOT NULL, 
-            key VARCHAR NOT NULL, 
-            value TEXT NOT NULL DEFAULT '', 
-            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, 
-            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, 
-            PRIMARY KEY (id), 
-            UNIQUE (key)
-        );
-        CREATE INDEX IF NOT EXISTS idx_settings_key ON settings (key);
-        """,
-    ),
-    # Migration 2: add settings table for runtime config (excludes secrets like token)
-    (
-        2,
-        (
-            """
-            CREATE TABLE IF NOT EXISTS settings (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                key VARCHAR NOT NULL UNIQUE,
-                value TEXT NOT NULL,
-                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-            );
-            """
-        ).strip(),
-    ),
-]
-
 
 def EnsureMigrated(database_path: str) -> None:
-    """Ensure the database is migrated to the latest schema version.
-
-    Connects to the database, checks the current schema version, and applies
-    any pending migrations by executing the SQL statements.
-
-    Args:
-        database_path: Path to the SQLite database file.
-    """
-    # Create parent directory if necessary so SQLite can create the DB file
-    parent_dir = os.path.dirname(os.path.abspath(database_path))
-    if parent_dir and not os.path.exists(parent_dir):
-        os.makedirs(parent_dir, exist_ok=True)
-
-    # Create engine for migrations
+    """Ensure SQLite database file and all ORM tables exist."""
+    # Ensure parent directory exists
+    os.makedirs(os.path.dirname(os.path.abspath(database_path)), exist_ok=True)
+    # Create engine with SQLite pragmas
     engine = create_engine(
         f"sqlite:///{database_path}",
-        connect_args={
-            "check_same_thread": False,
-        }
+        connect_args={"check_same_thread": False}
     )
-    
-    # Set up SQLite pragmas
     with engine.connect() as conn:
         conn.exec_driver_sql("PRAGMA journal_mode=WAL")
         conn.exec_driver_sql("PRAGMA foreign_keys=ON")
-        conn.commit()
-
-    # Run migrations inside a single transaction to keep state consistent
-    with engine.begin() as connection:
-        connection.execute(text(
-            """
-            CREATE TABLE IF NOT EXISTS schema_version (
-                version INTEGER NOT NULL,
-                applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-            """
-        ))
-
-        result = connection.execute(text(
-            "SELECT version FROM schema_version ORDER BY version DESC LIMIT 1"
-        ))
-        row = result.fetchone()
-        current_version = row[0] if row else 0
-
-        # Apply pending migrations
-        for migration_version, migration_sql in MIGRATIONS:
-            if migration_version > current_version and migration_sql.strip():
-                # Split and execute SQL statements
-                sql_statements = [stmt.strip() for stmt in migration_sql.strip().split(";") if stmt.strip()]
-                for sql_statement in sql_statements:
-                    connection.execute(text(sql_statement))
-
-                # Record migration completion (use named bind parameter for SQLAlchemy 2.x)
-                connection.execute(
-                    text("INSERT INTO schema_version(version) VALUES (:version)"),
-                    {"version": migration_version},
-                )
+    # Create all tables defined in ORM models
+    Base.metadata.create_all(engine)
+    # Backwards-compatibility: ensure `settings` table has created_at and updated_at columns
+    with engine.connect() as conn:
+        try:
+            # check if columns exist by selecting them
+            conn.exec_driver_sql("SELECT created_at, updated_at FROM settings LIMIT 1")
+        except Exception:
+            # Add missing columns if the table exists but columns are absent
+            try:
+                conn.exec_driver_sql("ALTER TABLE settings ADD COLUMN created_at DATETIME DEFAULT (CURRENT_TIMESTAMP)")
+            except Exception:
+                pass
+            try:
+                conn.exec_driver_sql("ALTER TABLE settings ADD COLUMN updated_at DATETIME DEFAULT (CURRENT_TIMESTAMP)")
+            except Exception:
+                pass
