@@ -1,6 +1,7 @@
 """Discord bot entrypoint: wires configuration, services, slash commands, and event handling."""
 
 import discord
+import logging
 from discord.ext import commands
 from datetime import datetime, timezone
 from typing import Any, Dict, List
@@ -23,13 +24,13 @@ from .commands import debug as debug_commands
 from .commands import channels as channel_commands
 from .commands import config as config_commands
 from .commands import utils as command_utils
-from .commands import config as config_commands
 
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 
 config = LoadConfig()  # type: ignore
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s", force=True)
 EnsureMigrated(config.database_path)  # type: ignore
 
 db = Database(config.database_path)  # type: ignore
@@ -42,6 +43,7 @@ storage = PersistenceService(db)
 reporting = ReportingService(db, config)  # type: ignore
 settings = SettingsService(db)
 report_scheduler: object | None = None
+event_scheduler: object | None = None
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
@@ -239,6 +241,13 @@ async def on_ready() -> None:
             )
     else:
         print("[Scheduler] Disabled by configuration; not started.")
+    # Start user-defined event scheduler
+    global event_scheduler
+    if event_scheduler is None:
+        from .services.event_scheduler import EventScheduler
+        event_scheduler = EventScheduler(bot, storage)
+        event_scheduler.start()
+        logging.getLogger("EventScheduler").info("Started custom event scheduler.")
 
 
 def RegisterBotCommands() -> None:
@@ -268,6 +277,9 @@ def RegisterBotCommands() -> None:
     debug_commands.RegisterDebugCommands(bot, storage, GenerateRandomUserRecent)
     channel_commands.RegisterChannelCommands(bot, channels)
     config_commands.RegisterConfigCommands(bot, settings, ApplyRuntimeSettings)
+    # Register user-defined schedule commands
+    from .commands.schedule_event import RegisterScheduleCommands
+    RegisterScheduleCommands(bot, storage)
 
     # Inline diagnostics command
     @bot.tree.command(name="diagnostics", description="Show basic diagnostics (db, counts, disk)")

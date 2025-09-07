@@ -607,3 +607,78 @@ class PersistenceService:
             }
         finally:
             session.close()
+    
+    def add_event(
+        self,
+        channel_discord_id: int,
+        interval_minutes: int,
+        command: str,
+    ) -> int:
+        """Add a new scheduled event."""
+        from ..db.models import ScheduledEvent
+        from datetime import datetime, timedelta, timezone
+
+        session = self.db.GetSession()
+        try:
+            # compute next run as timezone-aware UTC datetime
+            next_run = datetime.now(timezone.utc) + timedelta(minutes=interval_minutes)
+            event = ScheduledEvent(
+                channel_id=str(channel_discord_id),
+                interval_minutes=interval_minutes,
+                command=command,
+                next_run=next_run,
+                active=True,
+            )
+            session.add(event)
+            session.commit()
+            # event.id is primary key int
+            return cast(int, event.id)
+        finally:
+            session.close()
+
+    def list_events(
+        self,
+        channel_discord_id: int | None = None,
+    ) -> list[dict[str, Any]]:
+        """List active scheduled events, optionally filtered by channel."""
+        from ..db.models import ScheduledEvent
+        session = self.db.GetSession()
+        try:
+
+            query = session.query(ScheduledEvent).filter(ScheduledEvent.active.is_(True))
+            if channel_discord_id is not None:
+                query = query.filter(ScheduledEvent.channel_id == str(channel_discord_id))
+            events = query.all()
+            # convert each event to serializable dict
+            result: list[dict[str, Any]] = []
+            for e in events:
+                result.append({
+                    # e.id is primary key int
+                    'id': cast(int, e.id),
+                    'channel_id': int(str(e.channel_id)),
+                    'interval_minutes': e.interval_minutes,
+                    'command': e.command,
+                    'next_run': e.next_run.isoformat(),
+                })
+            return result
+        finally:
+            session.close()
+
+    def remove_event(
+        self,
+        event_id: int,
+    ) -> bool:
+        """Deactivate a scheduled event by id."""
+        from ..db.models import ScheduledEvent
+        session = self.db.GetSession()
+        try:
+            # load by primary key
+            event = session.get(ScheduledEvent, event_id)
+            if not event:
+                return False
+            # deactivate event
+            setattr(event, "active", False)
+            session.commit()
+            return True
+        finally:
+            session.close()

@@ -175,3 +175,19 @@ class Setting(Base):
         UniqueConstraint('key'),
         Index('idx_settings_key', 'key'),
     )
+
+class ScheduledEvent(Base):
+    """Scheduled event model."""
+    __tablename__ = 'scheduled_events'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    channel_id = Column(String, nullable=False)
+    interval_minutes = Column(Integer, nullable=False)
+    command = Column(String, nullable=False)
+    next_run = Column(DateTime, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+    active = Column(Boolean, nullable=False, default=True)
+
+    def __repr__(self) -> str:
+        return (f"<ScheduledEvent id={self.id} channel_id={self.channel_id} "
+                f"interval={self.interval_minutes} command={self.command} next_run={self.next_run} "
+                f"active={self.active}>")

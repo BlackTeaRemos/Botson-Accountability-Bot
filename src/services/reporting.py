@@ -1,14 +1,124 @@
 from __future__ import annotations
+import asyncio
 from datetime import datetime, timedelta
 from io import BytesIO
-from typing import List, Dict, Tuple, Any
+from typing import List, Dict, Tuple, Any, Callable, Awaitable
 import pandas as pd
 import matplotlib.pyplot as plt
 from sqlalchemy.orm import Session
-# from sqlalchemy import text  # kept for potential future raw SQL use
 from ..db.connection import Database
 from ..db.models import HabitDailyScore
 from ..core.config import AppConfig
+
+# Registry for allowed scheduled reports. Values are async-callables bot, channel -> None
+schedulable_reports: dict[str, Callable[[Any, Any], Awaitable[None]]] = {}
+
+# Active ReportingService instance (set during ReportingService.__init__)
+_active_reporting_service: Any | None = None
+
+def _set_active_reporting_service(svc: Any) -> None:
+    global _active_reporting_service
+    _active_reporting_service = svc
+
+def scheduled_report(name: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+    """Decorator to register a report function for scheduling.
+
+    The decorator registers an async wrapper (bot, channel) -> None which will
+    dispatch to either a bound ReportingService method (if available) or a
+    standalone function. This allows EventScheduler to call registered keys
+    without needing an instance reference.
+    """
+    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+        async def wrapper(bot: Any, channel: Any) -> None:
+            svc = _active_reporting_service
+            # If the function is implemented as a method on the active service,
+            # call that method (bound). Otherwise call the function directly.
+            try:
+                if svc is not None and hasattr(svc, func.__name__):
+                    method = getattr(svc, func.__name__)
+                    res = method(bot, channel)
+                else:
+                    res = func(bot, channel)
+                if asyncio.iscoroutine(res):
+                    await res
+            except Exception:
+                # Let the caller handle logging
+                raise
+
+        schedulable_reports[name] = wrapper
+        return func
+
+    return decorator
+
+
+# Explicitly register high-level report keys that call instance methods when available.
+@scheduled_report("weekly_image")
+async def weekly_image(bot: Any, channel: Any):
+    """Generate weekly report image and send it to the provided channel.
+    """
+    svc = _active_reporting_service
+    if svc is None:
+        return
+    try:
+        # Default style; interactive command path handles guild-specific style
+        buf, dates, warnings = svc.generate_weekly_table_image(days=7, style="style1")
+        if not dates:
+            return
+        try:
+            import discord  # type: ignore
+        except Exception:
+            # If discord isn't available in analysis context, just bail
+            return
+        file = discord.File(buf, filename="weekly_report.png")  # type: ignore[attr-defined]
+        warning_text = "" if not warnings else "\n" + "\n".join(f"Note: {w}" for w in warnings[:5]) + ("\n..." if len(warnings) > 5 else "")
+        message_content = "Weekly normalized scores (0-5 per day, scaled by daily max)." + warning_text
+        await channel.send(content=message_content, file=file)
+    except Exception:
+        # Let caller log
+        raise
+
+
+@scheduled_report("weekly_embed")
+async def weekly_embed(bot: Any, channel: Any):
+    """Generate weekly structured embed and send it to the channel.
+
+    Sends a compact summary embed similar to the interactive command version.
+    """
+    svc = _active_reporting_service
+    if svc is None:
+        return
+    try:
+        try:
+            import discord  # type: ignore
+        except Exception:
+            return
+        dates, per_user, totals, warnings = svc.get_weekly_structured(days=7)
+        if not dates:
+            return
+        human_dates = [datetime.strptime(d, '%Y-%m-%d').strftime('%a ') for d in dates]
+        # Build top users summary (up to 9)
+        embeds: list[Any] = []
+        for user_entry in per_user[:9]:
+            uid = str(user_entry['user_id'])
+            display = f"<@{uid}>" if uid.isdigit() else uid[:8]
+            day_scores = ' '.join(f"{user_entry.get(d,0):4.1f}" for d in dates)
+            total_val = user_entry['total']
+            emb = discord.Embed(title=f"{display} Weekly Report", description=f"Last {len(dates)} days", color=0x5865F2)  # type: ignore[attr-defined]
+            emb.add_field(name="Dates", value=' '.join(human_dates), inline=False)
+            emb.add_field(name="Scores", value=day_scores, inline=False)
+            emb.add_field(name="Total", value=f"{total_val:.1f}", inline=False)
+            embeds.append(emb)
+        # Summary embed
+        summary = discord.Embed(title="Weekly Summary", description=f"Top {min(len(per_user),9)} players", color=0x57F287)  # type: ignore[attr-defined]
+        summary.add_field(name="Dates", value=' '.join(human_dates), inline=False)
+        summary.add_field(name="Totals", value=' '.join(f"{totals[d]:.1f}" for d in dates), inline=False)
+        if warnings:
+            warn_join = "\n".join(warnings[:5]) + ("\n..." if len(warnings) > 5 else "")
+            summary.add_field(name="Data Notes", value=warn_join[:1000], inline=False)
+        embeds.append(summary)
+        await channel.send(embeds=embeds)
+    except Exception:
+        raise
 
 class ReportingService:
     """Generates tabular image reports for daily habit completion.
@@ -19,6 +129,11 @@ class ReportingService:
     def __init__(self, db: Database, config: AppConfig):
         self.db = db
         self.config = config
+        # register self as active service for scheduled_report wrappers
+        try:
+            _set_active_reporting_service(self)
+        except Exception:
+            pass
 
     def _fetch_raw_scores(self, days: int) -> List[Dict[str, Any]]:
         """Return raw daily score rows; windowing is applied after normalization.
@@ -306,3 +421,14 @@ class ReportingService:
             scores_for_date: List[float] = [float(u.get(date, 0.0)) for u in per_user]
             totals[date] = round(sum(scores_for_date), 2)
         return all_dates, per_user, totals, warnings
+
+    @scheduled_report("weekly_habit_report")
+    def scheduled_weekly_report(self):
+        """Generate and save the weekly habit report image."""
+        # For simplicity, using the same logic as generate_weekly_table_image
+        # TODO: Customize or optimize for scheduled run if needed (e.g. file saving, notification)
+        buf, human_dates, warnings = self.generate_weekly_table_image(days=7, style="style1")
+        # Save the image to a file or cloud storage as needed
+        # Example: with open("weekly_habit_report.png", "wb") as f:
+        #              f.write(buf.getvalue())
+        return buf, human_dates, warnings

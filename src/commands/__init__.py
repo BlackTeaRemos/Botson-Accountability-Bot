@@ -10,6 +10,7 @@ __all__ = [
     "channels",
     "utils",
     "config",
+    "schedule_event",
 ]
 
 from . import reporting
@@ -17,3 +18,4 @@ from . import debug
 from . import channels
 from . import utils
 from . import config
+from . import schedule_event
