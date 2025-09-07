@@ -268,6 +268,7 @@ class ReportingService:
         all_dates = all_dates[-days:] if days and days > 0 else all_dates
         if not all_dates:
             return BytesIO(), [], warnings
+        # end of generate_weekly_table_image
         data: List[List[Any]] = []
         # Build rows in a clearly-indented block so the analyzer knows 'row' and 'score_map' are bound
         for user_id, score_map in sorted(normalized.items(), key=lambda kv: float(sum(kv[1].values())), reverse=True):
@@ -313,6 +314,7 @@ class ReportingService:
         table.auto_set_font_size(False)
         table.set_fontsize(11)
         table.scale(1.1, 1.2)
+    # wrapper scheduled handlers registered below
 
         # TODO Rework into correct hashmap with configuration details and custorm styling
         def apply_style(style_name: str) -> None:

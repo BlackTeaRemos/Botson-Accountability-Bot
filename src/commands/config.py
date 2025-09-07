@@ -8,18 +8,7 @@ import discord
 from discord import app_commands
 
 from ..services.settings import SettingsService, BLOCKED_KEYS
-
-def _HasManageGuild(interaction: discord.Interaction) -> bool:
-    """Check if the user has manage guild permission.
-
-    Args:
-        interaction: The Discord interaction object.
-
-    Returns:
-        bool: True if the user has manage guild permission, False otherwise.
-    """
-    perms = getattr(getattr(interaction, "user", None), "guild_permissions", None)
-    return bool(perms and getattr(perms, "manage_guild", False))
+from ..security import has_manage_guild, require_guild, require_manage_guild, safe_send
 
 
 def RegisterConfigCommands(
@@ -63,21 +52,15 @@ def RegisterConfigCommands(
     config_group = app_commands.Group(name="config", description="Manage bot configuration")
 
     @config_group.command(name="list", description="List keys that are currently set in DB")
+    @require_guild
+    @require_manage_guild
     async def ConfigList(interaction: discord.Interaction):
         try:
-            if not interaction.guild_id:
-                await interaction.response.send_message("Use this in a guild.", ephemeral=True)
-                return
-            if not _HasManageGuild(interaction):
-                await interaction.response.send_message("Missing Manage Server permission.", ephemeral=True)
-                return
             keys = settings.list_keys()
             if not keys:
-                await interaction.response.send_message("No settings set.", ephemeral=True)
+                await safe_send(interaction, "No settings set.", ephemeral=True)
                 return
-            await interaction.response.send_message(
-                "Keys:\n" + "\n".join(sorted(keys)), ephemeral=True
-            )
+            await safe_send(interaction, "Keys:\n" + "\n".join(sorted(keys)), ephemeral=True)
         except Exception as e:
             if not interaction.response.is_done():
                 await interaction.response.send_message(f"Error: {e}", ephemeral=True)
@@ -85,21 +68,17 @@ def RegisterConfigCommands(
                 await interaction.followup.send(f"Error: {e}", ephemeral=True)
 
     @config_group.command(name="available", description="List available configuration keys")
+    @require_guild
+    @require_manage_guild
     async def ConfigAvailable(interaction: discord.Interaction):
         try:
-            if not interaction.guild_id:
-                await interaction.response.send_message("Use this in a guild.", ephemeral=True)
-                return
-            if not _HasManageGuild(interaction):
-                await interaction.response.send_message("Missing Manage Server permission.", ephemeral=True)
-                return
             items = settings.get_available_with_meta()
             if not items:
-                await interaction.response.send_message("No settings are available.", ephemeral=True)
+                await safe_send(interaction, "No settings are available.", ephemeral=True)
                 return
             lines = [f"{it['key']} ({it['type']}): {it['description']}".strip() for it in items]
             body = "\n".join(lines)
-            await interaction.response.send_message(body[:1900], ephemeral=True)
+            await safe_send(interaction, body[:1900], ephemeral=True)
         except Exception as e:
             if not interaction.response.is_done():
                 await interaction.response.send_message(f"Error: {e}", ephemeral=True)
@@ -109,27 +88,20 @@ def RegisterConfigCommands(
     @config_group.command(name="get", description="Get a setting value (DB)")
     @app_commands.describe(key="Setting key")
     @app_commands.autocomplete(key=key_autocomplete)
+    @require_guild
+    @require_manage_guild
     async def ConfigGet(interaction: discord.Interaction, key: str):
         try:
-            if not interaction.guild_id:
-                await interaction.response.send_message("Use this in a guild.", ephemeral=True)
-                return
-            if not _HasManageGuild(interaction):
-                await interaction.response.send_message("Missing Manage Server permission.", ephemeral=True)
-                return
             lowered = key.lower()
             if lowered in {k.lower() for k in BLOCKED_KEYS}:
-                await interaction.response.send_message("This key is blocked.", ephemeral=True)
+                await safe_send(interaction, "This key is blocked.", ephemeral=True)
                 return
             val = settings.get(key)
             if val is None:
-                await interaction.response.send_message("<unset>", ephemeral=True)
+                await safe_send(interaction, "<unset>", ephemeral=True)
                 return
             import json
-            await interaction.response.send_message(
-                f"```json\n{json.dumps(val, indent=2, ensure_ascii=False)}\n```",
-                ephemeral=True,
-            )
+            await safe_send(interaction, f"```json\n{json.dumps(val, indent=2, ensure_ascii=False)}\n```", ephemeral=True)
         except Exception as e:
             if not interaction.response.is_done():
                 await interaction.response.send_message(f"Error: {e}", ephemeral=True)
@@ -139,17 +111,13 @@ def RegisterConfigCommands(
     @config_group.command(name="set", description="Set a setting value (JSON or primitive)")
     @app_commands.describe(key="Setting key", value="JSON or primitive value")
     @app_commands.autocomplete(key=key_autocomplete)
+    @require_guild
+    @require_manage_guild
     async def ConfigSet(interaction: discord.Interaction, key: str, value: str):
         try:
-            if not interaction.guild_id:
-                await interaction.response.send_message("Use this in a guild.", ephemeral=True)
-                return
-            if not _HasManageGuild(interaction):
-                await interaction.response.send_message("Missing Manage Server permission.", ephemeral=True)
-                return
             lowered = key.lower()
             if lowered in {k.lower() for k in BLOCKED_KEYS}:
-                await interaction.response.send_message("This key is blocked.", ephemeral=True)
+                await safe_send(interaction, "This key is blocked.", ephemeral=True)
                 return
             # Try to parse as JSON; fallback to raw string
             import json
@@ -170,7 +138,7 @@ def RegisterConfigCommands(
                         parsed = value
             settings.set(key, parsed)
             await apply_runtime_settings()
-            await interaction.response.send_message("Saved and applied.", ephemeral=True)
+            await safe_send(interaction, "Saved and applied.", ephemeral=True)
         except Exception as e:
             if not interaction.response.is_done():
                 await interaction.response.send_message(f"Error: {e}", ephemeral=True)
@@ -180,22 +148,18 @@ def RegisterConfigCommands(
     @config_group.command(name="delete", description="Delete a setting")
     @app_commands.describe(key="Setting key")
     @app_commands.autocomplete(key=key_autocomplete)
+    @require_guild
+    @require_manage_guild
     async def ConfigDelete(interaction: discord.Interaction, key: str):
         try:
-            if not interaction.guild_id:
-                await interaction.response.send_message("Use this in a guild.", ephemeral=True)
-                return
-            if not _HasManageGuild(interaction):
-                await interaction.response.send_message("Missing Manage Server permission.", ephemeral=True)
-                return
             lowered = key.lower()
             if lowered in {k.lower() for k in BLOCKED_KEYS}:
-                await interaction.response.send_message("This key is blocked.", ephemeral=True)
+                await safe_send(interaction, "This key is blocked.", ephemeral=True)
                 return
             removed = settings.delete(key)
             if removed:
                 await apply_runtime_settings()
-            await interaction.response.send_message("Deleted and applied." if removed else "Not found.", ephemeral=True)
+            await safe_send(interaction, "Deleted and applied." if removed else "Not found.", ephemeral=True)
         except Exception as e:
             if not interaction.response.is_done():
                 await interaction.response.send_message(f"Error: {e}", ephemeral=True)

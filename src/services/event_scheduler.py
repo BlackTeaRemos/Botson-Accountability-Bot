@@ -75,8 +75,19 @@ class EventScheduler:
                 self.logger.info("Event due: id=%s next_run=%s command=%s", ev.get('id'), ev.get('next_run'), ev.get('command'))
                 # execute event
                 await self._execute_event(ev)
-                # schedule next
-                new_run = now + timedelta(minutes=ev['interval_minutes'])
+                # schedule next: prefer anchor+expr if present
+                anchor = ev.get('schedule_anchor')
+                expr = ev.get('schedule_expr')
+                if anchor and expr:
+                    try:
+                        from .schedule_expression import compute_next_run_from_anchor
+                        new_run, _ = compute_next_run_from_anchor(anchor, expr, now=now)
+                    except Exception:
+                        minutes = max(1, int(ev.get('interval_minutes') or 0))
+                        new_run = now + timedelta(minutes=minutes)
+                else:
+                    minutes = max(1, int(ev.get('interval_minutes') or 0))
+                    new_run = now + timedelta(minutes=minutes)
                 # persist next_run back to DB
                 session = self.storage.db.GetSession()
                 try:
@@ -106,18 +117,26 @@ class EventScheduler:
             # dispatch via approved scheduled reports registry
             from ..services.reporting import schedulable_reports
 
-            # backward-compatibility mapping for legacy stored commands
-            legacy_map = {
-                "/report weekly": "weekly_image",
-                "/report embed": "weekly_embed",
-            }
-            lookup = legacy_map.get(command) or command
+            lookup = command
 
             func = schedulable_reports.get(lookup)
             if not func:
                 self.logger.warning("Scheduled report not found: %s (original: %s)", lookup, command)
             else:
                 self.logger.info("Executing scheduled report %s (orig: %s) in channel %s", lookup, command, channel_id)
+                # Send a mention before the report according to mention_type
+                mention_type = (ev.get('mention_type') or 'user').lower()
+                try:
+                    if mention_type == 'everyone':
+                        await chan.send("@everyone")
+                    elif mention_type == 'here':
+                        await chan.send("@here")
+                    elif mention_type == 'user':
+                        target = ev.get('target_user_id')
+                        if target and str(target).isdigit():
+                            await chan.send(f"<@{target}>")
+                except Exception:
+                    self.logger.warning("Failed to send mention for event %s", ev.get('id'))
                 result = func(self.bot, chan)
                 if asyncio.iscoroutine(result):
                     await result

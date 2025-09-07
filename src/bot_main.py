@@ -24,12 +24,15 @@ from .commands import debug as debug_commands
 from .commands import channels as channel_commands
 from .commands import config as config_commands
 from .commands import utils as command_utils
+from .security import validate_discord_token
 
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 
 config = LoadConfig()  # type: ignore
+# Configure basic logging so services like EventScheduler emit to console.
+# Use force=True to override any handlers added by third-party libraries.
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s", force=True)
 EnsureMigrated(config.database_path)  # type: ignore
 
@@ -341,7 +344,7 @@ async def on_message_edit(before: discord.Message, after: discord.Message) -> No
         "created_at": after.created_at.isoformat(),
         "edited_at": datetime.now(tz=timezone.utc).isoformat(),
     }, {})
-    # No command registration here — commands are registered at startup.
+    # No command registration here - commands are registered at startup.
 
 
 def Run():
@@ -359,15 +362,8 @@ def Run():
         Run()  # Launches the bot if token is valid
     """
     token = config.discord_token  # type: ignore
-    if not token or token == "" or token.lower() == "changeme":
-        raise SystemExit("DISCORD_TOKEN not set in environment")
-
+    validate_discord_token(token)
     token_parts = token.split('.')
-    if len(token_parts) != 3:
-        raise SystemExit(
-            "DISCORD_TOKEN format unexpected (should contain 2 dots). "
-            "Double-check the bot token, not client secret or application ID."
-        )
     masked_token = token_parts[0][:4] + "..." + token_parts[-1][-4:]
     print(f"[Startup] Using token (masked): {masked_token}")
 

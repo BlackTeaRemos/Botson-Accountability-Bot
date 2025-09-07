@@ -528,11 +528,10 @@ class PersistenceService:
             if not channel:
                 return {"messages": 0, "message_scores": 0, "daily_scores": 0}
 
-            # Delete messages from test users (user_ids starting with 'testuser_')
             messages_query = session.query(Message).filter(
                 and_(
                     Message.channel_id == channel.id,
-                    Message.author_id.like("testuser_%")
+                    Message.author_display.like("testuser_%")
                 )
             )
             messages_count = messages_query.count()
@@ -613,21 +612,38 @@ class PersistenceService:
         channel_discord_id: int,
         interval_minutes: int,
         command: str,
+        *,
+        schedule_anchor: str | None = None,
+        schedule_expr: str | None = None,
+        target_user_id: str | None = None,
+        mention_type: str | None = 'user',
     ) -> int:
-        """Add a new scheduled event."""
+        """Add a new scheduled event.
+
+        If schedule_anchor and schedule_expr are provided, next_run will be computed
+        from the synchronized anchor; otherwise falls back to interval_minutes.
+        """
         from ..db.models import ScheduledEvent
         from datetime import datetime, timedelta, timezone
+        from .schedule_expression import compute_next_run_from_anchor
 
         session = self.db.GetSession()
         try:
             # compute next run as timezone-aware UTC datetime
-            next_run = datetime.now(timezone.utc) + timedelta(minutes=interval_minutes)
+            if schedule_anchor and schedule_expr:
+                next_run, _ = compute_next_run_from_anchor(schedule_anchor, schedule_expr, now=datetime.now(timezone.utc))
+            else:
+                next_run = datetime.now(timezone.utc) + timedelta(minutes=interval_minutes)
             event = ScheduledEvent(
                 channel_id=str(channel_discord_id),
                 interval_minutes=interval_minutes,
                 command=command,
                 next_run=next_run,
                 active=True,
+                schedule_expr=schedule_expr,
+                schedule_anchor=schedule_anchor,
+                target_user_id=target_user_id,
+                mention_type=mention_type or 'user',
             )
             session.add(event)
             session.commit()
@@ -659,6 +675,10 @@ class PersistenceService:
                     'interval_minutes': e.interval_minutes,
                     'command': e.command,
                     'next_run': e.next_run.isoformat(),
+                    'schedule_expr': getattr(e, 'schedule_expr', None),
+                    'schedule_anchor': getattr(e, 'schedule_anchor', None),
+                    'target_user_id': getattr(e, 'target_user_id', None),
+                    'mention_type': getattr(e, 'mention_type', 'user'),
                 })
             return result
         finally:

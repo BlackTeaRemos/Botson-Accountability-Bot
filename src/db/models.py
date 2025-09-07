@@ -186,8 +186,15 @@ class ScheduledEvent(Base):
     command = Column(String, nullable=False)
     next_run = Column(DateTime, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
     active = Column(Boolean, nullable=False, default=True)
+    schedule_expr = Column(String)  # e.g., "d2h4m30"
+    schedule_anchor = Column(String)  # e.g., "week" | "month" | "year"
+    target_user_id = Column(String)
+    # Mention type: 'none' | 'user' | 'here' | 'everyone'
+    mention_type = Column(String, nullable=False, default='user')
 
     def __repr__(self) -> str:
-        return (f"<ScheduledEvent id={self.id} channel_id={self.channel_id} "
-                f"interval={self.interval_minutes} command={self.command} next_run={self.next_run} "
-                f"active={self.active}>")
+        return (
+            f"<ScheduledEvent id={self.id} channel_id={self.channel_id} "
+            f"interval={self.interval_minutes} command={self.command} next_run={self.next_run} "
+            f"anchor={self.schedule_anchor} expr={self.schedule_expr} target={self.target_user_id} mention={self.mention_type} active={self.active}>"
+        )

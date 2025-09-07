@@ -21,18 +21,3 @@ def EnsureMigrated(database_path: str) -> None:
         conn.exec_driver_sql("PRAGMA foreign_keys=ON")
     # Create all tables defined in ORM models
     Base.metadata.create_all(engine)
-    # Backwards-compatibility: ensure `settings` table has created_at and updated_at columns
-    with engine.connect() as conn:
-        try:
-            # check if columns exist by selecting them
-            conn.exec_driver_sql("SELECT created_at, updated_at FROM settings LIMIT 1")
-        except Exception:
-            # Add missing columns if the table exists but columns are absent
-            try:
-                conn.exec_driver_sql("ALTER TABLE settings ADD COLUMN created_at DATETIME DEFAULT (CURRENT_TIMESTAMP)")
-            except Exception:
-                pass
-            try:
-                conn.exec_driver_sql("ALTER TABLE settings ADD COLUMN updated_at DATETIME DEFAULT (CURRENT_TIMESTAMP)")
-            except Exception:
-                pass

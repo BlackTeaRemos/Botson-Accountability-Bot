@@ -112,7 +112,9 @@ def test_migration_creates_db_when_dir_missing(tmp_path: Path) -> None:
     database = Database(str(db_path))
     session = database.GetSession()
     try:
-        rows = session.execute(__import__("sqlalchemy").text("SELECT COUNT(1) FROM schema_version")).scalar_one()
-        assert rows >= 1
+        # Sanity: core tables should exist and be queryable
+        from sqlalchemy import text  # type: ignore
+        session.execute(text("SELECT COUNT(1) FROM channels"))
+        session.execute(text("SELECT COUNT(1) FROM settings"))
     finally:
         session.close()

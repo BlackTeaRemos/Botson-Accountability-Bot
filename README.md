@@ -45,9 +45,9 @@ Alternatively use an `.env` file:
 - `DAILY_GOAL_TASKS` (default 5)
 
 Scheduler (embed posts):
-- `SCHEDULED_REPORTS_ENABLED` (default true if unset/empty) — enable the background scheduler
-- `SCHEDULED_REPORT_INTERVAL_MINUTES` (default 60) — minutes between posts
-- `SCHEDULED_REPORT_CHANNEL_IDS` (optional CSV of channel IDs) — if set, only these channels get posts; otherwise, all registered channels are used
+- `SCHEDULED_REPORTS_ENABLED` (default true if unset/empty) - enable the background scheduler
+- `SCHEDULED_REPORT_INTERVAL_MINUTES` (default 60) - minutes between posts
+- `SCHEDULED_REPORT_CHANNEL_IDS` (optional CSV of channel IDs) - if set, only these channels get posts; otherwise, all registered channels are used
 
 ## Runtime Configuration via Discord
 
@@ -55,10 +55,10 @@ The bot supports runtime-editable configuration persisted in the database (safe 
 
 Slash commands (Manage Server permission required):
 
-- /config_list — list keys stored in DB
-- /config_get key:<name> — show current value
-- /config_set key:<name> value:<json-or-primitive> — set a value and apply immediately
-- /config_delete key:<name> — remove a key and re-apply defaults
+- /config_list - list keys stored in DB
+- /config_get key:<name> - show current value
+- /config_set key:<name> value:<json-or-primitive> - set a value and apply immediately
+- /config_delete key:<name> - remove a key and re-apply defaults
 
 Examples of values:
 
