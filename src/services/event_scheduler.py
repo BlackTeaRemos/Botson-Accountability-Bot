@@ -59,46 +59,40 @@ class EventScheduler:
 
     async def _check_and_run(self) -> None:
         """Fetch events and execute those whose next_run is due."""
-        # fetch current events
-        events = self.storage.list_events()
         now = datetime.now(timezone.utc)
-        self.logger.debug("Fetched %d scheduled events", len(events))
+        # Query only events that are due as of now
+        events = self.storage.list_due_events(now_iso=now.isoformat())
+        self.logger.debug("Due events to execute: %d", len(events))
         for ev in events:
-            try:
-                next_run = datetime.fromisoformat(ev['next_run'])
-                # ensure next_run is timezone-aware UTC
-                if next_run.tzinfo is None:
-                    next_run = next_run.replace(tzinfo=timezone.utc)
-            except Exception:
-                continue
-            if next_run <= now:
-                self.logger.info("Event due: id=%s next_run=%s command=%s", ev.get('id'), ev.get('next_run'), ev.get('command'))
-                # execute event
-                await self._execute_event(ev)
-                # schedule next: prefer anchor+expr if present
-                anchor = ev.get('schedule_anchor')
-                expr = ev.get('schedule_expr')
-                if anchor and expr:
-                    try:
-                        from .schedule_expression import compute_next_run_from_anchor
-                        new_run, _ = compute_next_run_from_anchor(anchor, expr, now=now)
-                    except Exception:
-                        minutes = max(1, int(ev.get('interval_minutes') or 0))
-                        new_run = now + timedelta(minutes=minutes)
-                else:
+            self.logger.info(
+                "Event due: id=%s next_run=%s command=%s",
+                ev.get('id'), ev.get('next_run'), ev.get('command')
+            )
+            # execute event
+            await self._execute_event(ev)
+            # schedule next: prefer anchor+expr if present
+            anchor = ev.get('schedule_anchor')
+            expr = ev.get('schedule_expr')
+            if anchor and expr:
+                try:
+                    from .schedule_expression import compute_next_run_from_anchor
+                    new_run, _ = compute_next_run_from_anchor(anchor, expr, now=now)
+                except Exception:
                     minutes = max(1, int(ev.get('interval_minutes') or 0))
                     new_run = now + timedelta(minutes=minutes)
-                # persist next_run back to DB
-                session = self.storage.db.GetSession()
-                try:
-                    from ..db.models import ScheduledEvent
-
-                    db_ev = session.get(ScheduledEvent, ev['id'])
-                    if db_ev:
-                        setattr(db_ev, 'next_run', new_run)
-                        session.commit()
-                finally:
-                    session.close()
+            else:
+                minutes = max(1, int(ev.get('interval_minutes') or 0))
+                new_run = now + timedelta(minutes=minutes)
+            # persist next_run back to DB
+            session = self.storage.db.GetSession()
+            try:
+                from ..db.models import ScheduledEvent
+                db_ev = session.get(ScheduledEvent, ev['id'])
+                if db_ev:
+                    setattr(db_ev, 'next_run', new_run)
+                    session.commit()
+            finally:
+                session.close()
 
     async def _execute_event(self, ev: dict[str, Any]) -> None:
         """Execute a single scheduled event by sending its command to the channel."""

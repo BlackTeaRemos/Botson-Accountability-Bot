@@ -34,6 +34,103 @@ def RegisterReportingCommands(
         RegisterReportingCommands(bot, storage, reporting, channels, config)
     """
     # ----- Internal implementations to allow reuse between top-level and grouped commands -----
+    async def _send_embed_report(interaction: discord.Interaction, date_list: list[str], per_user_data: list[Any], 
+                               warnings_list: list[str], purge_message_prefix: str, purge_note_message: str, 
+                               user_display_names: dict[str, str], followup: bool = False) -> None:
+        """Helper function to send embed report, either as initial response or followup."""
+        
+        # Prepare human-readable dates
+        human_readable_dates = [datetime.strptime(d, '%Y-%m-%d').strftime('%a ') for d in date_list]
+
+        # Get all-time totals
+        all_time_totals = reporting.get_all_time_totals()
+
+        # Build individual embeds for top 9 users sorted by total descending
+        embed_list: list[discord.Embed] = []
+        for user_data in per_user_data[:9]:
+            user_id_string = str(user_data['user_id'])
+            
+            # Use display name if available, otherwise create mention
+            if user_id_string in user_display_names:
+                display_name = f"@{user_display_names[user_id_string]}"
+            else:
+                display_name = f"<@{user_id_string}>" if user_id_string.isdigit() else user_id_string[:8]
+            
+            if len(display_name) > 15:
+                display_name = display_name[:12] + '...'
+            
+            # Format daily scores
+            daily_lines: list[str] = []
+            for i, date in enumerate(date_list):
+                day_name = human_readable_dates[i].strip()
+                score = user_data.get(date, 0)
+                daily_lines.append(f"{day_name} {score:.1f}")
+            
+            # Get all-time total
+            all_time_total = all_time_totals.get(user_id_string, 0)
+            
+            # Create embed with proper field formatting
+            embed = discord.Embed(
+                title=f"Weekly Report - {display_name}", 
+                color=0x5865F2
+            )
+            
+            # Add daily scores as a field
+            embed.add_field(
+                name="Daily Scores", 
+                value="```\n" + "\n".join(daily_lines) + "\n```", 
+                inline=False
+            )
+            
+            # Add totals as separate fields
+            embed.add_field(name="Total", value=f"{user_data['total']:.1f}", inline=True)
+            embed.add_field(name="All Time", value=f"{all_time_total:.1f}", inline=True)
+            
+            embed_list.append(embed)
+
+        # Summary embed with totals and warnings
+        summary_embed = discord.Embed(title="Weekly Summary", description=f"Top {min(len(per_user_data), 9)} players", color=0x57F287)
+        
+        # Create user scores list for the summary
+        user_score_lines: list[str] = []
+        for user_data in per_user_data[:9]:
+            user_id_string = str(user_data['user_id'])
+            
+            # Use display name if available, otherwise create mention
+            if user_id_string in user_display_names:
+                display_name = f"@{user_display_names[user_id_string]}"
+            else:
+                display_name = f"<@{user_id_string}>" if user_id_string.isdigit() else user_id_string[:8]
+            
+            if len(display_name) > 20:  # Shorter limit for summary
+                display_name = display_name[:17] + '...'
+            
+            weekly_total = user_data['total']
+            user_score_lines.append(f"{display_name:<20} {weekly_total:>5.1f}")
+        
+        # Add user scores as a formatted field
+        summary_embed.add_field(
+            name="Player Scores", 
+            value="```\n" + "\n".join(user_score_lines) + "\n```", 
+            inline=False
+        )
+        
+        if warnings_list:
+            warnings_joined = "\n".join(warnings_list[:5]) + ("\n..." if len(warnings_list) > 5 else "")
+            summary_embed.add_field(name="Data Notes", value=warnings_joined[:1000], inline=False)
+        if purge_message_prefix or purge_note_message:
+            summary_embed.description = (
+                (purge_message_prefix or '') +
+                (summary_embed.description or '') +
+                (purge_note_message or '')
+            )
+        embed_list.append(summary_embed)
+
+        if followup:
+            await interaction.followup.send(embeds=embed_list, ephemeral=False)
+        else:
+            await interaction.response.send_message(embeds=embed_list, ephemeral=False)
+
     async def _weekly_report_implementation(interaction: discord.Interaction) -> None:
         try:
 
@@ -66,10 +163,11 @@ def RegisterReportingCommands(
                 except Exception:
                     pass  # If fetching fails, fall back to IDs
 
-            image_buffer, dates, warnings = reporting.generate_weekly_table_image(days=7, style=guild_style or "style1", user_names=user_display_names)
-            if any('Dropped row' in w or 'Dropped' in w for w in warnings):
+            # Get structured data to check user count
+            date_list, per_user_data, _daily_totals, warnings_list = reporting.get_weekly_structured(days=7)
+            if any('Dropped row' in w or 'Dropped' in w for w in warnings_list):
                 deleted_rows, deleted_dates_list = storage.purge_non_iso_dates(channel_id)
-                image_buffer, dates, warnings = reporting.generate_weekly_table_image(days=7, style=guild_style or "style1", user_names=user_display_names)
+                date_list, per_user_data, _daily_totals, warnings_list = reporting.get_weekly_structured(days=7)
                 if deleted_dates_list:
                     deleted_dates_string = ', '.join(deleted_dates_list[:10]) + (', ...' if len(deleted_dates_list) > 10 else '')
                     purge_note_message = f"\nNote: purged {deleted_rows} malformed daily rows (dates: {deleted_dates_string}) before rendering."
@@ -78,23 +176,57 @@ def RegisterReportingCommands(
             else:
                 purge_note_message = ""
 
-            if not dates:
+            if not date_list:
                 await interaction.response.send_message("No data for last 7 days yet.", ephemeral=True)
                 return
 
-            file = discord.File(image_buffer, filename="weekly_report.png")
-            warning_message = "" if not warnings else "\n" + "\n".join(f"Note: {w}" for w in warnings[:5]) + ("\n..." if len(warnings) > 5 else "")
-            message_content = (
-                purge_message_prefix +
-                "Weekly normalized scores (0-5 per day, scaled by daily max)." +
-                purge_note_message +
-                warning_message
-            )
-            await interaction.response.send_message(
-                content=message_content,
-                file=file,
-                ephemeral=False,
-            )
+            # Check user count to decide format
+            user_count = len(per_user_data)
+
+            if user_count < 10:
+                # Use embed format for fewer users
+                await _send_embed_report(
+                    interaction,
+                    date_list,
+                    per_user_data,
+                    warnings_list,
+                    purge_message_prefix,
+                    purge_note_message,
+                    user_display_names,
+                )
+            else:
+                # For 10+ users: send embed first, then image so embed appears on top
+                await _send_embed_report(
+                    interaction,
+                    date_list,
+                    per_user_data,
+                    warnings_list,
+                    purge_message_prefix,
+                    purge_note_message,
+                    user_display_names,
+                )
+
+                # Generate image after initial response
+                image_buffer, _dates, warnings = reporting.generate_weekly_table_image(
+                    days=7, style=guild_style or "style1", user_names=user_display_names
+                )
+
+                file = discord.File(image_buffer, filename="weekly_report.png")
+                warning_message = (
+                    "" if not warnings
+                    else "\n" + "\n".join(f"Note: {w}" for w in warnings[:5]) + ("\n..." if len(warnings) > 5 else "")
+                )
+                message_content = (
+                    # Purge notes are already included in the embed; keep image caption concise
+                    "Weekly normalized scores (0-5 per day, scaled by daily max)." + warning_message
+                )
+
+                # Then send image as a follow-up
+                await interaction.followup.send(
+                    content=message_content,
+                    file=file,
+                    ephemeral=False,
+                )
 
         except Exception as e:
             try:
@@ -133,10 +265,10 @@ def RegisterReportingCommands(
                 except Exception:
                     pass  # If fetching fails, fall back to IDs
 
-            date_list, per_user_data, daily_totals, warnings_list = reporting.get_weekly_structured(days=7)
+            date_list, per_user_data, _daily_totals, warnings_list = reporting.get_weekly_structured(days=7)
             if any('Dropped row' in w or 'Dropped' in w for w in warnings_list):
                 deleted_rows, deleted_dates_list = storage.purge_non_iso_dates(channel_id)
-                date_list, per_user_data, daily_totals, warnings_list = reporting.get_weekly_structured(days=7)
+                date_list, per_user_data, _daily_totals, warnings_list = reporting.get_weekly_structured(days=7)
                 if deleted_dates_list:
                     deleted_dates_string = ', '.join(deleted_dates_list[:10]) + (', ...' if len(deleted_dates_list) > 10 else '')
                     purge_note_message = f"\nPurged {deleted_rows} malformed daily rows (dates: {deleted_dates_string}) before rendering."
@@ -170,7 +302,7 @@ def RegisterReportingCommands(
                     display_name = display_name[:12] + '...'
                 
                 # Format daily scores
-                daily_lines = []
+                daily_lines: list[str] = []
                 for i, date in enumerate(date_list):
                     day_name = human_readable_dates[i].strip()
                     score = user_data.get(date, 0)
@@ -202,7 +334,7 @@ def RegisterReportingCommands(
             summary_embed = discord.Embed(title="Weekly Summary", description=f"Top {min(len(per_user_data), 9)} players", color=0x57F287)
             
             # Create user scores list for the summary
-            user_score_lines = []
+            user_score_lines: list[str] = []
             for user_data in per_user_data[:9]:
                 user_id_string = str(user_data['user_id'])
                 
