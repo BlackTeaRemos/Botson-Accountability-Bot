@@ -424,6 +424,24 @@ class ReportingService:
             totals[date] = round(sum(scores_for_date), 2)
         return all_dates, per_user, totals, warnings
 
+    def get_all_time_totals(self) -> Dict[str, float]:
+        """Return all-time totals for all users.
+        
+        Returns:
+            Dict mapping user_id to total normalized score across all dates.
+        """
+        rows = self._fetch_raw_scores(days=0)  # Fetch all data
+        if not rows:
+            return {}
+        normalized, _ = self._normalize(rows)
+        
+        all_time_totals: Dict[str, float] = {}
+        for user_id, score_map in normalized.items():
+            total = sum(score_map.values())
+            all_time_totals[user_id] = round(total, 2)
+        
+        return all_time_totals
+
     @scheduled_report("weekly_habit_report")
     def scheduled_weekly_report(self):
         """Generate and save the weekly habit report image."""

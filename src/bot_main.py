@@ -49,6 +49,8 @@ report_scheduler: object | None = None
 event_scheduler: object | None = None
 
 bot = commands.Bot(command_prefix="!", intents=intents)
+_commands_registered_once: bool = False  # guard to avoid double-registration
+_guild_command_cleanup_done: bool = False  # ensure we only clear guild commands once per process
 
 
 def _ComputeOverriddenConfig(base: AppConfig) -> AppConfig:  # type: ignore
@@ -194,32 +196,35 @@ async def on_ready() -> None:
     """Called when the bot has successfully connected to Discord."""
     await bus.Emit("BotStarted", {"user": str(bot.user)}, {})
     await diagnostics.run_startup()
-    # Register slash commands from modules so they exist before syncing.
-    RegisterBotCommands()
+    # Register slash commands from modules so they exist before syncing (once only).
+    global _commands_registered_once
+    if not _commands_registered_once:
+        RegisterBotCommands()
+        _commands_registered_once = True
     try:
-        # Always perform global sync so commands appear in every server the bot joins.
-        global_synced = await bot.tree.sync()
-        print(f"[Commands] Global sync -> {len(global_synced)} commands (global propagation may take up to ~1 hour)")
-        # If the bot is in a small number of guilds (<5), perform per-guild sync for immediate availability.
+        # Always perform global sync so commands appear in every server without per-guild duplication.
         guild_count = len(bot.guilds)
-        if guild_count < 5:
-            synced_total = 0
+        global_synced = await bot.tree.sync()
+        print(f"[Commands] Global sync -> {len(global_synced)} commands (joined guilds={guild_count}).")
+        print("[Commands] Per-guild copy/sync disabled to avoid duplicate commands.")
+
+        # One-time cleanup: clear any legacy guild-specific commands that were previously copied
+        # from global to guild scope. Without this, Discord may show duplicates in autocomplete.
+        global _guild_command_cleanup_done
+        if not _guild_command_cleanup_done:
+            cleared = 0
             for g in bot.guilds:
                 try:
                     guild_obj = discord.Object(id=g.id)  # type: ignore[arg-type]
-                    # Copy global commands into the guild scope for instant availability, then sync
-                    try:
-                        bot.tree.copy_global_to(guild=guild_obj)
-                    except Exception:
-                        # Safe to ignore; copy is best-effort
-                        pass
-                    guild_synced = await bot.tree.sync(guild=guild_obj)
-                    synced_total += len(guild_synced)
-                    print(f"[Commands] Guild sync ({g.id}) -> {len(guild_synced)} commands (immediate)")
+                    bot.tree.clear_commands(guild=guild_obj)
+                    await bot.tree.sync(guild=guild_obj)
+                    cleared += 1
+                    print(f"[Commands] Cleared legacy guild-specific commands for guild {g.id}.")
                 except Exception as guild_err:
-                    print(f"[Commands] Guild sync failed for {g.id}: {guild_err}")
-        else:
-            print(f"[Commands] Skipping per-guild sync (joined guilds={guild_count}); relying on global propagation.")
+                    print(f"[Commands] Guild cleanup failed for {g.id}: {guild_err}")
+            _guild_command_cleanup_done = True
+            if cleared:
+                print(f"[Commands] Cleanup complete: cleared {cleared} guild command sets.")
     except Exception as e:
         print(f"[Commands] Sync failed: {e}")
     # Apply any DB-backed overrides before starting scheduler

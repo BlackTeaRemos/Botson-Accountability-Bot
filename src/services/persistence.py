@@ -173,7 +173,8 @@ class PersistenceService:
             session.close()
 
     def recompute_daily_scores(self, channel_discord_id: int, date: str | None = None) -> None:
-        """Rebuild per-day aggregates from per-message scores."""
+        """Rebuild per-day aggregates from per-message scores.
+        """
         session: Session = self.db.GetSession()
         try:
             channel = session.query(Channel).filter(
@@ -193,60 +194,46 @@ class PersistenceService:
 
             query.delete()
 
-            # Recompute from message scores
+            # Recompute from message scores using latest-per-day replacement logic
+            # Load joined rows so we can pick the latest message per (user_id, date)
+            from ..db.models import Message as _Message
+
+            filters = [HabitMessageScore.channel_id == channel.id]
             if date:
-                # Single date
-                raw_ratio_col = getattr(HabitMessageScore, "raw_ratio")  # type: ignore[attr-defined]
-                result = cast(List[Any], session.query(
-                    HabitMessageScore.user_id,
-                    HabitMessageScore.date,
-                    func.sum(raw_ratio_col).label('raw_score_sum'),
-                    func.count(HabitMessageScore.id).label('messages_count')
-                ).filter(
-                    and_(
-                        HabitMessageScore.channel_id == channel.id,
-                        HabitMessageScore.date == date
-                    )
-                ).group_by(
-                    HabitMessageScore.user_id,
-                    HabitMessageScore.date
-                ).all())
+                filters.append(HabitMessageScore.date == date)
 
-                for row in result:
-                    daily_score = HabitDailyScore(
-                        user_id=str(getattr(row, 'user_id')),
-                        date=str(getattr(row, 'date')),
-                        channel_id=channel.id,
-                        raw_score_sum=float(getattr(row, 'raw_score_sum') or 0.0),
-                        normalized_score=0.0,
-                        messages_count=int(getattr(row, 'messages_count') or 0)
-                    )
-                    session.add(daily_score)
-            else:
-                # All dates
-                raw_ratio_col2 = getattr(HabitMessageScore, "raw_ratio")  # type: ignore[attr-defined]
-                result = cast(List[Any], session.query(
-                    HabitMessageScore.user_id,
-                    HabitMessageScore.date,
-                    func.sum(raw_ratio_col2).label('raw_score_sum'),
-                    func.count(HabitMessageScore.id).label('messages_count')
-                ).filter(
-                    HabitMessageScore.channel_id == channel.id
-                ).group_by(
-                    HabitMessageScore.user_id,
-                    HabitMessageScore.date
-                ).all())
+            rows: List[Any] = cast(List[Any], session.query(
+                HabitMessageScore,
+                _Message.created_at,
+                _Message.edited_at
+            ).join(_Message, HabitMessageScore.message_id == _Message.id)
+             .filter(and_(*filters)).all())
 
-                for row in result:
-                    daily_score = HabitDailyScore(
-                        user_id=str(getattr(row, 'user_id')),
-                        date=str(getattr(row, 'date')),
-                        channel_id=channel.id,
-                        raw_score_sum=float(getattr(row, 'raw_score_sum') or 0.0),
-                        normalized_score=0.0,
-                        messages_count=int(getattr(row, 'messages_count') or 0)
-                    )
-                    session.add(daily_score)
+            # Group by (user_id, date)
+            from collections import defaultdict
+            grouped: Dict[tuple[str, str], list[tuple[Any, Any, Any]]] = defaultdict(list)
+            for hms, created_at, edited_at in rows:
+                key = (str(getattr(hms, 'user_id')), str(getattr(hms, 'date')))
+                grouped[key].append((hms, created_at, edited_at))
+
+            # For each group, select the latest record by (edited_at or created_at)
+            for (user_id_val, date_val), items in grouped.items():
+                def _ts(t: Any, c: Any) -> Any:
+                    return t if t is not None else c
+                # Compute messages count for transparency
+                messages_count = len(items)
+                latest = max(items, key=lambda tup: _ts(tup[2], tup[1]))
+                latest_hms = latest[0]
+                raw_ratio_value = float(getattr(latest_hms, 'raw_ratio') or 0.0)
+                daily_score = HabitDailyScore(
+                    user_id=str(user_id_val),
+                    date=str(date_val),
+                    channel_id=channel.id,
+                    raw_score_sum=raw_ratio_value,
+                    normalized_score=0.0,
+                    messages_count=messages_count,
+                )
+                session.add(daily_score)
 
             session.commit()
         finally:
