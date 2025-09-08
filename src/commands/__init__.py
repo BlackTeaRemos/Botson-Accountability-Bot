@@ -9,7 +9,6 @@ __all__ = [
     "debug",
     "channels",
     "utils",
-    "config",
     "schedule_event",
     "framework",
 ]
@@ -18,6 +17,5 @@ from . import reporting
 from . import debug
 from . import channels
 from . import utils
-from . import config
 from . import schedule_event
 from . import framework

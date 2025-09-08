@@ -25,7 +25,6 @@ from ..commands import reporting as reporting_commands
 from ..commands import debug as debug_commands
 from ..commands import channels as channel_commands
 from ..commands import debug_functions as debug_functions
-from ..commands import config as config_commands
 from ..commands import utils as command_utils
 
 
@@ -64,7 +63,6 @@ def RegisterBotCommands(bot: discord.Client) -> None:
     reporting_commands.ReportingCommands.register_with_services(bot, storage, reporting, channels, config)  # type: ignore
     debug_commands.DebugCommands.register_with_services(bot, storage, debug_functions.make_generate_random_user_recent(storage))
     channel_commands.RegisterChannelCommands(bot, channels)
-    config_commands.RegisterConfigCommands(bot, settings, UpdateRuntimeConfiguration)
 
     # Register user-defined schedule and reminder commands
     from ..commands.schedule_event import ScheduleCommands
