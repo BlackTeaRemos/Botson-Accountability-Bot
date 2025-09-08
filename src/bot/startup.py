@@ -45,7 +45,6 @@ habit_parser = HabitParser(bus)
 storage = PersistenceService(db)
 reporting = ReportingService(db, config)  # type: ignore
 settings = SettingsService(db)
-report_scheduler: object | None = None
 event_scheduler: object | None = None
 
 
@@ -56,28 +55,6 @@ async def UpdateRuntimeConfiguration(bot: discord.Client) -> None:
     new_config = _ComputeOverriddenConfig(config)
     config = new_config
     reporting.config = new_config
-
-    try:
-        if new_config.scheduled_reports_enabled:  # type: ignore
-            if report_scheduler is None:
-                from ..services.scheduler import ReportScheduler  # type: ignore
-
-                report_scheduler = ReportScheduler(bot, storage, reporting, new_config)  # type: ignore[assignment]
-                report_scheduler.start()  # type: ignore[attr-defined]
-            else:
-                try:
-                    report_scheduler.config = new_config  # type: ignore[attr-defined]
-                except Exception:
-                    pass
-        else:
-            if report_scheduler is not None:
-                try:
-                    await report_scheduler.stop()  # type: ignore[attr-defined]
-                except Exception:
-                    pass
-                report_scheduler = None
-    except Exception as e:
-        print(f"[Config] Failed to apply scheduler settings: {e}")
 
 
 def RegisterBotCommands(bot: discord.Client) -> None:
