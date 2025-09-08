@@ -61,15 +61,15 @@ def RegisterBotCommands(bot: discord.Client) -> None:
     """Register slash commands from modules and add inline diagnostics command.
     """
     # Module-registered commands
-    reporting_commands.RegisterReportingCommands(bot, storage, reporting, channels, config)  # type: ignore
+    reporting_commands.ReportingCommands.register_with_services(bot, storage, reporting, channels, config)  # type: ignore
     debug_commands.DebugCommands.register_with_services(bot, storage, debug_functions.make_generate_random_user_recent(storage))
     channel_commands.RegisterChannelCommands(bot, channels)
     config_commands.RegisterConfigCommands(bot, settings, UpdateRuntimeConfiguration)
 
     # Register user-defined schedule and reminder commands
-    from ..commands.schedule_event import RegisterScheduleCommands
+    from ..commands.schedule_event import ScheduleCommands
 
-    RegisterScheduleCommands(bot, storage)
+    ScheduleCommands.register_with_services(bot, storage)
     try:
         from ..commands.reminder import RegisterReminderCommands  # type: ignore
 
