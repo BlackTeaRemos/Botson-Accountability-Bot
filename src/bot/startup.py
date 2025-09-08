@@ -62,7 +62,7 @@ def RegisterBotCommands(bot: discord.Client) -> None:
     """
     # Module-registered commands
     reporting_commands.RegisterReportingCommands(bot, storage, reporting, channels, config)  # type: ignore
-    debug_commands.RegisterDebugCommands(bot, storage, debug_functions.make_generate_random_user_recent(storage))
+    debug_commands.DebugCommands.register_with_services(bot, storage, debug_functions.make_generate_random_user_recent(storage))
     channel_commands.RegisterChannelCommands(bot, channels)
     config_commands.RegisterConfigCommands(bot, settings, UpdateRuntimeConfiguration)
 
