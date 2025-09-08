@@ -1,6 +1,6 @@
-# Accountability Bot (Event-Driven Rework Scaffold)
+# Accountability Bot
 
-## Quick Start (Local)
+## Quick Start
 1. Python 3.12+
 2. `python -m venv .venv && . .venv/Scripts/Activate.ps1` (Windows PowerShell)
 3. `pip install -r requirements.txt`
