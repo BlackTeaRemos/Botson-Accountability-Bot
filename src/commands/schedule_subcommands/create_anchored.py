@@ -50,7 +50,11 @@ class ScheduleCreateAnchored(CommandDefinition):
             except Exception:
                 pass
 
-        @group.command(name="create_anchored", description="Create a weekly anchored scheduled event")
+        @group.command(name="create_anchored", description="Create a weekly anchored scheduled event (supports '@offset' e.g., w1@d2h10)")
+        @app_commands.describe(
+            report_type="What to run (pick from suggestions)",
+            expression="Interval or interval@offset. Examples: d2h4, w1@d2h10, w2@h9m30"
+        )
         async def create_anchored(interaction: discord.Interaction, report_type: str, expression: str):
             try:
                 await interaction.response.defer(ephemeral=True, thinking=True)
@@ -68,18 +72,45 @@ class ScheduleCreateAnchored(CommandDefinition):
                     await safe_send(interaction, "Invalid report type.", ephemeral=True)
                     return
                 anchor_l = "week"
+                # Validate/preview expression and compute next run for user feedback
+                from ...services.schedule_expression import (
+                    compute_next_run_from_week_expr,
+                    compute_next_run_from_anchor,
+                )
+                expr = (expression or "").strip().lower()
+                try:
+                    if "@" in expr:
+                        next_run, _ = compute_next_run_from_week_expr(expr)
+                    else:
+                        next_run, _ = compute_next_run_from_anchor(anchor_l, expr)
+                except Exception as e:
+                    help_text = (
+                        "```\n"
+                        f"Invalid expression: {e}\n"
+                        "\n"
+                        "Tokens:\n"
+                        "  w = weeks, d = days, h = hours, m = minutes\n"
+                        "\n"
+                        "Examples:\n"
+                        "  d2h4      -> every 2 days and 4 hours from week start\n"
+                        "  w1@d2h10  -> every week at Wednesday 10:00\n"
+                        "  w2@h9m30  -> every 2 weeks at Monday 09:30\n"
+                        "```"
+                    )
+                    await safe_send(interaction, help_text, ephemeral=True)
+                    return
                 event_id = storage.add_event(
                     channel_discord_id=cid,
                     interval_minutes=0,
                     command=report_type,
                     schedule_anchor=anchor_l,
-                    schedule_expr=expression.strip().lower(),
+                    schedule_expr=expr,
                 )
                 await interaction.followup.send(
-                    f"Anchored event {event_id} created: {report_type} every '{expression}' (weekly).",
+                    f"Anchored event {event_id} created: {report_type} every '{expr}' (weekly). Next run at {next_run.isoformat()}.",
                     ephemeral=True,
                 )
-                await _send_public(interaction, f"Scheduled event {event_id} created: {report_type} every '{expression}'.")
+                await _send_public(interaction, f"Scheduled event {event_id} created: {report_type} every '{expr}'. First run at {next_run.isoformat()}.")
             except Exception as e:
                 await safe_send(interaction, f"Error creating anchored event: {e}", ephemeral=True)
 

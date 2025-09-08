@@ -25,7 +25,7 @@ class ScheduleManage(CommandDefinition):
                 self.report_type = report_type
                 self.bot = bot
 
-            @discord.ui.button(label="Enter interval", style=discord.ButtonStyle.primary, custom_id="open_expression_modal_v1")
+            @discord.ui.button(label="Enter interval/@offset", style=discord.ButtonStyle.primary, custom_id="open_expression_modal_v1")
             async def open_expression(self, interaction: discord.Interaction, button: Any):
                 try:
                     await interaction.response.send_modal(ExpressionModal(self.storage, self.report_type, self.bot))
@@ -35,15 +35,15 @@ class ScheduleManage(CommandDefinition):
                     except Exception:
                         pass
 
-        class ExpressionModal(discord.ui.Modal, title="Enter Expression"):
+        class ExpressionModal(discord.ui.Modal, title="Enter Weekly Expression"):
             def __init__(self, storage: PersistenceService, report_type: str, bot: Any):
                 super().__init__()
                 self.storage = storage
                 self.report_type = report_type
                 self.bot = bot
                 self.expression: Any = discord.ui.TextInput(
-                    label="Expression (e.g., d2h4m30)",
-                    placeholder="d2h4m30",
+                    label="Expression: interval or interval@offset",
+                    placeholder="Examples: d2h4, w1@d2h10, w2@h9m30",
                     required=True,
                     max_length=64,
                 )
@@ -53,6 +53,22 @@ class ScheduleManage(CommandDefinition):
                 expr = str(self.expression.value or "").strip().lower()
                 if not expr:
                     await interaction.response.send_message("Expression cannot be empty.", ephemeral=True)
+                    return
+                # Validate using schedule expression helpers; weekly anchor is assumed here
+                try:
+                    from ...services.schedule_expression import (
+                        compute_next_run_from_anchor,
+                        compute_next_run_from_week_expr,
+                    )
+                    if "@" in expr:
+                        compute_next_run_from_week_expr(expr)
+                    else:
+                        compute_next_run_from_anchor("week", expr)
+                except Exception as e:
+                    await interaction.response.send_message(
+                        f"Invalid expression: {e}. Use tokens w/d/h/m. Examples: 'd2h4', 'w1@d2h10', 'w2@h9m30'.",
+                        ephemeral=True,
+                    )
                     return
                 view = MentionTypeSelectView(self.storage, self.report_type, expr, self.bot)
                 await interaction.response.send_message("Choose mention type:", view=view, ephemeral=True)
@@ -352,11 +368,22 @@ class ScheduleManage(CommandDefinition):
                     async def _on_pick(i: discord.Interaction, value: Any) -> None:
                         chosen = str(value)
                         explanation = (
-                            "Step 2 - Enter interval:\n"
-                            "This schedule is anchored weekly (aligned to Monday 00:00 UTC).\n"
-                            "Enter an offset using tokens: w (weeks), d (days), h (hours), m (minutes).\n"
-                            "Examples: d2h4 (2 days, 4 hours), h12 (every 12 hours), w1 (every week).\n\n"
-                            "Click the button below to open a private box to type the interval."
+                            "```\n"
+                            "Enter interval\n"
+                            "\n"
+                            "  Syntax:\n"
+                            "    interval@offset\n"
+                            "\n"
+                            "  Tokens:\n"
+                            "    w = weeks, d = days, h = hours, m = minutes\n"
+                            "\n"
+                            "  Examples:\n"
+                            "    d2h4       -> every 2 days and 4 hours from week start\n"
+                            "    w1@d2h10   -> every week at Wednesday 10:00\n"
+                            "    w2@h9m30   -> every 2 weeks at Monday 09:30\n"
+                            "\n"
+                            "Type your expression below and press Submit.\n"
+                            "```"
                         )
                         view2 = ExpressionPromptView(self.storage, chosen, bot)
                         try:

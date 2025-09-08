@@ -38,9 +38,31 @@ Alternatively use an `.env` file:
 - `DAILY_GOAL_TASKS` (default 5)
 
 Scheduler (embed posts):
-- `SCHEDULED_REPORTS_ENABLED` (default true if unset/empty) - enable the background scheduler
-- `SCHEDULED_REPORT_INTERVAL_MINUTES` (default 60) - minutes between posts
-- `SCHEDULED_REPORT_CHANNEL_IDS` (optional CSV of channel IDs) - if set, only these channels get posts; otherwise, all registered channels are used
+
+## Anchored weekly schedules
+
+You can create anchored schedules that align to the start of the week (Monday 00:00 UTC). Use the slash command UI under the schedule manager or the dedicated command to create them.
+
+Expression format:
+
+- Basic interval: tokens w (weeks), d (days), h (hours), m (minutes)
+- Combined form: `interval@offset`
+	- interval: how often it repeats (e.g., `w1` = every week, `w2` = every 2 weeks)
+	- offset: shift from Monday 00:00 (e.g., `d2h10` = Wednesday 10:00)
+
+Examples:
+
+- `d2h4` → every 2 days and 4 hours from Monday 00:00
+- `w1@d2h10` → weekly on Wednesday at 10:00 (Monday + 2 days + 10 hours)
+- `w2@h9m30` → every 2 weeks at Monday 09:30
+
+Create via UI:
+
+- Use `/schedule manage` → Create Anchored → pick report → Enter `interval` or `interval@offset`.
+
+Create via slash command:
+
+- `/schedule create_anchored report_type:<type> expression:<interval or interval@offset>`
 
 ## License
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)

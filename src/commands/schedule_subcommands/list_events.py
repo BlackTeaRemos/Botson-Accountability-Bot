@@ -3,6 +3,7 @@ from typing import Any
 import discord
 from discord import app_commands
 from ..framework import CommandDefinition
+from ...security import safe_send
 
 
 class ScheduleList(CommandDefinition):
@@ -14,13 +15,21 @@ class ScheduleList(CommandDefinition):
         async def list_events(interaction: discord.Interaction):
             storage = ctx.get("storage")
             cid = interaction.channel_id
-            if cid is None:
-                await interaction.response.send_message("Must be used in a channel.", ephemeral=True)
-                return
             try:
+                try:
+                    await interaction.response.defer(ephemeral=True, thinking=True)
+                except Exception:
+                    pass
+                if cid is None:
+                    await safe_send(interaction, "Must be used in a channel.", ephemeral=True)
+                    return
                 events = storage.list_events(channel_discord_id=cid)
                 if not events:
-                    await interaction.response.send_message("No scheduled events found.", ephemeral=True)
+                    # Prefer followup after defer
+                    try:
+                        await interaction.followup.send("No scheduled events found.", ephemeral=True)
+                    except Exception:
+                        await safe_send(interaction, "No scheduled events found.", ephemeral=True)
                     return
                 lines: list[str] = []
                 for ev in events:
@@ -33,6 +42,13 @@ class ScheduleList(CommandDefinition):
                             f"ID {ev['id']}: every {ev['interval_minutes']}m -> '{ev['command']}' next at {ev['next_run']}"
                         )
                 body = "\n".join(lines)
-                await interaction.response.send_message(f"Scheduled events:\n{body}", ephemeral=True)
+                try:
+                    await interaction.followup.send(f"Scheduled events:\n{body}", ephemeral=True)
+                except Exception:
+                    await safe_send(interaction, f"Scheduled events:\n{body}", ephemeral=True)
             except Exception as e:
-                await interaction.response.send_message(f"Error listing events: {e}", ephemeral=True)
+                try:
+                    await safe_send(interaction, f"Error listing events: {e}", ephemeral=True)
+                except Exception:
+                    # Give up silently to avoid Unknown interaction loops
+                    pass
