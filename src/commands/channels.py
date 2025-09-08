@@ -36,7 +36,6 @@ def RegisterChannelCommands(bot: Any, channels_service: Any) -> None:
                 "This command must be used in a server text channel.", ephemeral=True
             )
             return
-        # Defer while we perform registration work
         await interaction.response.defer(ephemeral=True, thinking=True)
         try:
             await channels_service.register(cid, interaction.user.id, None)
@@ -47,6 +46,5 @@ def RegisterChannelCommands(bot: Any, channels_service: Any) -> None:
 
     bot.tree.add_command(channel_group)
 
-    # Keep references for analyzers
     _registered_channel_cmds: dict[str, object] = {"register": RegisterChannel}
     _ = _registered_channel_cmds
