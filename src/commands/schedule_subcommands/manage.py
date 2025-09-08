@@ -1,6 +1,7 @@
 # pyright: reportMissingImports=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnknownArgumentType=false, reportUnknownParameterType=false
 from __future__ import annotations
 from typing import Any
+import re
 import discord
 from discord import app_commands
 from ..framework import CommandDefinition
@@ -245,7 +246,7 @@ class ScheduleManage(CommandDefinition):
                     label="Message to post",
                     placeholder="Don't forget to hydrate!",
                     required=True,
-                    max_length=1500,
+                    max_length=100,
                     style=discord.TextStyle.paragraph,
                 )
                 self.add_item(self.text_input)
@@ -254,6 +255,18 @@ class ScheduleManage(CommandDefinition):
                 msg = str(self.text_input.value or "").strip()
                 if not msg:
                     await interaction.response.send_message("Message cannot be empty.", ephemeral=True)
+                    return
+                # Sanitize mentions anywhere in the text and enforce limit at creation time
+                # Remove user mentions like <@123> or <@!123>
+                msg = re.sub(r"<@!?\d+>", "", msg)
+                # Remove broadcast mentions
+                msg = re.sub(r"@everyone|@here", "", msg, flags=re.IGNORECASE)
+                msg = msg.strip()
+                if not msg:
+                    await interaction.response.send_message("Message cannot be only mentions.", ephemeral=True)
+                    return
+                if len(msg) > 100:
+                    await interaction.response.send_message("Reminder text must be 100 characters or fewer.", ephemeral=True)
                     return
                 cid = interaction.channel_id
                 if cid is None:

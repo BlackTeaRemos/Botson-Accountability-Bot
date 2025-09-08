@@ -614,13 +614,21 @@ class ReportingService:
 
 @scheduled_report("reminder")
 async def reminder(bot: Any, channel: Any, ev: Dict[str, Any] | None = None) -> None:
-    """Post a custom reminder message stored in the event's command as 'reminder:<text>'."""
+    """Post a custom reminder message stored in the event's command as 'reminder:<text>', with mentions sanitized."""
+    import re
     try:
         text = ""
         if ev and isinstance(ev.get("command"), str):
             cmd: str = ev["command"]  # type: ignore[index]
             if ":" in cmd:
-                text = cmd.split(":", 1)[1].strip()
+                text = cmd.split(":", 1)[1]
+                # Remove user mentions like <@123> or <@!123>
+                text = re.sub(r"<@!?\d+>", "", text)
+                # Remove broadcast mentions
+                text = re.sub(r"@everyone|@here", "", text, flags=re.IGNORECASE)
+                text = text.strip()
+                if len(text) > 100:
+                    text = text[:100]
         if text:
             await channel.send(text)
     except Exception:

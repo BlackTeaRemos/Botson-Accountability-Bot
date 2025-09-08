@@ -613,9 +613,24 @@ class PersistenceService:
         from ..db.models import ScheduledEvent
         from datetime import datetime, timedelta, timezone
         from .schedule_expression import compute_next_run_from_anchor, compute_next_run_from_week_expr
+        import re
 
         session = self.db.GetSession()
         try:
+            # Normalize reminder commands at creation: sanitize mentions anywhere and clamp to 100 chars
+            if command.startswith("reminder:"):
+                base, _, tail = command.partition(":")
+                msg = tail
+                # Remove user mentions like <@123> or <@!123>
+                msg = re.sub(r"<@!?\d+>", "", msg)
+                # Remove broadcast mentions
+                msg = re.sub(r"@everyone|@here", "", msg, flags=re.IGNORECASE)
+                msg = msg.strip()
+                # Enforce hard limit at creation time
+                if len(msg) > 100:
+                    msg = msg[:100]
+                command = f"{base}:{msg}" if msg else base + ":"
+
             # compute next run as timezone-aware UTC datetime
             if schedule_anchor and schedule_expr:
                 if schedule_anchor.strip().lower() == "week" and "@" in schedule_expr:
