@@ -1,13 +1,10 @@
 # pyright: reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnknownArgumentType=false, reportUnknownParameterType=false
 """Chainable interaction helper for Discord UI components.
 
-Provides a tiny builder for creating a one-shot interaction message with either
+Builder for creating a one-shot interaction message with either
 an action button or a select. When the user interacts, the provided callback is
 invoked and the controls are removed (or disabled) from the message so it can't
 be used again.
-
-This mirrors the scheduler flow style, but keeps it generic and chainable to
-reuse across commands.
 """
 from __future__ import annotations
 
@@ -82,6 +79,7 @@ class _OneShotView(discord.ui.View):
         if self._used:
             # Ignore duplicate clicks/selects once used.
             return
+        
         if self._restrict_user_id is not None and getattr(getattr(interaction, "user", None), "id", None) != self._restrict_user_id:
             await safe_send(interaction, "You're not allowed to use this control.")
             return

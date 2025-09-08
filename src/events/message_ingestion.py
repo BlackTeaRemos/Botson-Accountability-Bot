@@ -1,6 +1,4 @@
 """Message ingestion & habit parsing event handlers.
-
-Extracted from `bot_main.register_event_handlers` to keep startup wiring slim.
 """
 from __future__ import annotations
 from datetime import datetime
@@ -27,8 +25,10 @@ def register(bus: EventBus, storage: Storage, habit_parser: HabitParserType) -> 
         if event.type not in ("MessageReceived", "MessageEdited"):
             return
         cid = event.payload["channel_id"]
+        
         if not storage.is_channel_registered(cid):
             return
+        
         if event.type == "MessageReceived":
             storage.insert_message(
                 discord_message_id=event.payload["discord_message_id"],
@@ -42,6 +42,7 @@ def register(bus: EventBus, storage: Storage, habit_parser: HabitParserType) -> 
             event.payload["content"],
             datetime.fromisoformat(event.payload["created_at"].replace('Z', '')),
         )
+
         if parsed and parsed.get("extracted_date"):
             storage.update_habit_parse(
                 event.payload["discord_message_id"],

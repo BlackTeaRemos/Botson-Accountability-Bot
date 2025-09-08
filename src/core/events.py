@@ -1,9 +1,5 @@
 from __future__ import annotations
 """Lightweight asynchronous in-process event bus.
-
-Provides an `Event` data structure and an `EventBus` with subscribe/emit semantics.
-Used to decouple Discord gateway events from domain logic and allow future
-instrumentation (logging, metrics) via wildcard subscribers.
 """
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -30,14 +26,11 @@ class Event:
 Handler = Callable[[Event], Coroutine[Any, Any, None]]  # Type alias for event handler functions
 
 class EventBus:
-    """Simple async event bus.
-
-    Handlers are awaited sequentially; if one raises it propagates upward.
-    Wildcard handlers receive all events (used for logging/introspection).
+    """Async event bus.
     """
     def __init__(self):
-        self._handlers: Dict[str, List[Handler]] = {}  # Handlers for specific event types
-        self._wildcard: List[Handler] = []  # Wildcard handlers for all events
+        self._handlers: Dict[str, List[Handler]] = {} 
+        self._wildcard: List[Handler] = []
 
     def Subscribe(self, event_type: str, handler: Handler) -> None:
         """Register a handler for a specific event type.

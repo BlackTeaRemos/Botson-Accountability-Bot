@@ -1,11 +1,9 @@
 """Event handler registration modules.
-
-Each module exposes a `register(bus, ...)` function to attach its handlers.
 """
 
 from typing import Callable, cast
 
-from .message_ingestion import register as _register_message_ingestion  # the real implementation
+from .message_ingestion import register as _register_message_ingestion
 
 from ..core.events import EventBus
 from ..services.persistence import PersistenceService

@@ -7,13 +7,6 @@
 4. Set token: `$env:DISCORD_TOKEN="YOUR_TOKEN_HERE"`
 5. Run: `python run.py`
 
-## Docker Run (Single Container)
-Build and run manually:
-```
-docker build -t accountability-bot .
-# Insert your key in the command below (DO NOT COMMIT IT):
-docker run -d --name accountability-bot -e DISCORD_TOKEN=YOUR_TOKEN_HERE -v bot_data:/data accountability-bot
-```
 
 ## Docker Compose (Recommended)
 Edit `docker-compose.yml` and replace this line:
@@ -45,34 +38,31 @@ Alternatively use an `.env` file:
 - `DAILY_GOAL_TASKS` (default 5)
 
 Scheduler (embed posts):
-- `SCHEDULED_REPORTS_ENABLED` (default true if unset/empty) - enable the background scheduler
-- `SCHEDULED_REPORT_INTERVAL_MINUTES` (default 60) - minutes between posts
-- `SCHEDULED_REPORT_CHANNEL_IDS` (optional CSV of channel IDs) - if set, only these channels get posts; otherwise, all registered channels are used
 
-## Runtime Configuration via Discord
+## Anchored weekly schedules
 
-The bot supports runtime-editable configuration persisted in the database (safe keys only; the Discord token is never stored and cannot be edited via commands).
+You can create anchored schedules that align to the start of the week (Monday 00:00 UTC). Use the slash command UI under the schedule manager or the dedicated command to create them.
 
-Slash commands (Manage Server permission required):
+Expression format:
 
-- /config_list - list keys stored in DB
-- /config_get key:<name> - show current value
-- /config_set key:<name> value:<json-or-primitive> - set a value and apply immediately
-- /config_delete key:<name> - remove a key and re-apply defaults
+- Basic interval: tokens w (weeks), d (days), h (hours), m (minutes)
+- Combined form: `interval@offset`
+	- interval: how often it repeats (e.g., `w1` = every week, `w2` = every 2 weeks)
+	- offset: shift from Monday 00:00 (e.g., `d2h10` = Wednesday 10:00)
 
-Examples of values:
+Examples:
 
-- true, false
-- 15, 60
-- "UTC"
-- [123456789012345678, 234567890123456789]
+- `d2h4` → every 2 days and 4 hours from Monday 00:00
+- `w1@d2h10` → weekly on Wednesday at 10:00 (Monday + 2 days + 10 hours)
+- `w2@h9m30` → every 2 weeks at Monday 09:30
 
-Blocked keys: DISCORD_TOKEN, discord_token, token.
+Create via UI:
 
-On changes, the weekly report scheduler is started/stopped/reconfigured to reflect new settings right away.
+- Use `/schedule manage` → Create Anchored → pick report → Enter `interval` or `interval@offset`.
 
-## Current Status
-Scaffold includes: migrations, event bus, channel registration, message ingestion, habit parsing (raw scores), weekly report (image and embed), and a configurable scheduler for periodic embed posts.
+Create via slash command:
+
+- `/schedule create_anchored report_type:<type> expression:<interval or interval@offset>`
 
 ## License
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
@@ -91,3 +81,6 @@ pip install -r requirements.txt
 pytest -q
 ```
 Never commit your real Discord bot token. Use `.env`, compose environment section, or secret management.
+
+
+

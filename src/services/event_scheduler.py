@@ -75,8 +75,12 @@ class EventScheduler:
             expr = ev.get('schedule_expr')
             if anchor and expr:
                 try:
-                    from .schedule_expression import compute_next_run_from_anchor
-                    new_run, _ = compute_next_run_from_anchor(anchor, expr, now=now)
+                    if str(anchor).strip().lower() == "week" and "@" in str(expr):
+                        from .schedule_expression import compute_next_run_from_week_expr
+                        new_run, _ = compute_next_run_from_week_expr(str(expr), now=now)
+                    else:
+                        from .schedule_expression import compute_next_run_from_anchor
+                        new_run, _ = compute_next_run_from_anchor(anchor, expr, now=now)
                 except Exception:
                     minutes = max(1, int(ev.get('interval_minutes') or 0))
                     new_run = now + timedelta(minutes=minutes)

@@ -1,115 +1,82 @@
 # Commands module
 
-This folder encapsulates all Discord slash commands. Commands are organized as grouped slash commands using discord.py `app_commands.Group` for a clean UX and reliable autocomplete.
+### Define a group
 
-## Current groups
+File: `src/commands/reporting.py`
 
-```
-/report
-  weekly
-  embed
-  clear_week
-  backfill
-  style set
-
-/config
-  list
-  available
-  get
-  set
-  delete
-
-/debug
-  add_score
-  remove_score
-  user_info
-  purge_bad_dates
-  generate_user
-
-/channel
-  register
-```
-
-## How commands are registered
-
-Each module exposes a `register_*_commands(bot, ...) -> None` function. The function defines a group, declares subcommands, and calls `bot.tree.add_command(group)`.
-
-`bot_main.register_bot_commands()` imports these modules and calls the registration functions during startup, before syncing the command tree.
-
-## Authoring commands: effective patterns
-
-Typing indicator and followups
-
-```
-await interaction.response.defer(thinking=True, ephemeral=True)
-# Perform work
-await interaction.followup.send("Done")
-```
-
-Error handling
-
-```
-try:
-    ...
-except Exception as e:
-    if not interaction.response.is_done():
-        await interaction.response.send_message(f"Error: {e}", ephemeral=True)
-    else:
-        await interaction.followup.send(f"Error: {e}", ephemeral=True)
-```
-
-Autocomplete and choices
-
-```
+```python
+from typing import Any
 from discord import app_commands
+from .framework import CommandDefinition
 
-async def key_autocomplete(interaction, current: str):
-    items = ["alpha", "beta", "gamma"]
-    cur = (current or "").lower()
-    filtered = [x for x in items if cur in x.lower()]
-    return [app_commands.Choice(name=x, value=x) for x in filtered[:20]]
+class ReportingCommands(CommandDefinition):
+	group_name = "report"
+	group_description = "Reporting commands"
 
-@group.command(name="get")
-@app_commands.describe(key="Setting key")
-@app_commands.autocomplete(key=key_autocomplete)
-async def get(interaction, key: str):
-    ...
+	def define(self, group: app_commands.Group, ctx: dict[str, Any]) -> None:
+		# No inline commands here; see sub-commands in report_subcommands/*
+		return None
+
+	def get_discovery_package(self) -> str | None:
+		return "src.commands.report_subcommands"
+
+	@classmethod
+	def register_with_services(cls, bot: Any, storage: Any, reporting: Any, channels: Any, config: Any) -> None:
+		ctx = {"storage": storage, "reporting": reporting, "channels": channels, "config": config}
+		cls().register(bot, ctx)
 ```
 
-Permissions
+### Define a sub-command
 
-```
-def _has_manage_guild(interaction) -> bool:
-    perms = getattr(getattr(interaction, "user", None), "guild_permissions", None)
-    return bool(perms and getattr(perms, "manage_guild", False))
+File: `src/commands/report_subcommands/weekly.py`
 
-if not _has_manage_guild(interaction):
-    await interaction.response.send_message("Missing Manage Server permission.", ephemeral=True)
-    return
-```
-
-Minimal template
-
-```
-# src/commands/feature_x.py
+```python
 from typing import Any
 import discord
 from discord import app_commands
+from ..framework import CommandDefinition
 
+class ReportWeekly(CommandDefinition):
+	group_name = None  # attaches into /report
 
-def register_feature_x_commands(bot: Any, service: Any) -> None:
-    group = app_commands.Group(name="featurex", description="Feature X commands")
+	def define(self, group: app_commands.Group, ctx: dict[str, Any]) -> None:
+		storage = ctx["storage"]
 
-    @group.command(name="do", description="Run Feature X action")
-    async def do_cmd(interaction: discord.Interaction, arg: str):
-        await interaction.response.defer(thinking=True, ephemeral=True)
-        result = service.do(arg)
-        await interaction.followup.send(f"Result: {result}")
-
-    bot.tree.add_command(group)
+		@group.command(name="weekly", description="Weekly report")
+		async def _cmd(interaction: discord.Interaction):
+			await interaction.response.send_message("Weekly report coming up…", ephemeral=True)
 ```
 
-Implementation notes
+Place each sub-command in its own file inside the discovery package. The group’s `get_discovery_package()` must point at that package.
 
-- Prefer ephemeral responses for admin/maintenance commands.
-- For large outputs, split across embed fields or send as files where appropriate.
+### Register at startup
+
+Register groups via classmethods in `src/bot/startup.py`:
+
+```python
+from ..commands import reporting as reporting_commands
+from ..commands import debug as debug_commands
+from ..commands.schedule_event import ScheduleCommands
+
+def RegisterBotCommands(bot: discord.Client) -> None:
+	reporting_commands.ReportingCommands.register_with_services(bot, storage, reporting, channels, config)
+	debug_commands.DebugCommands.register_with_services(bot, storage, make_generate_random_user_recent(storage))
+	ScheduleCommands.register_with_services(bot, storage)
+```
+
+### Context contract
+
+`register_with_services(...)` builds a plain `dict[str, Any]` (the ctx) that is provided to all sub-commands. Access services via keys, e.g. `ctx["storage"]`. The framework automatically adds `ctx["bot"]` if missing.
+
+### Discovery rules
+
+- Group class calls `self.register(bot, ctx)`.
+- `register()` creates the `app_commands.Group`, calls the group's `define()`, then scans the discovery package for subclasses of `CommandDefinition` with `group_name=None`.
+- Each discovered provider's `define()` is called with the same `group` and `ctx`, so they can attach commands using `@group.command(...)`.
+
+### Adding a new command group
+
+1. Create `src/commands/<name>.py` with a `CommandDefinition` subclass and `get_discovery_package()`.
+2. Create `src/commands/<name>_subcommands/` and add one class-per-file implementing `define()`.
+3. Register in startup with a `register_with_services(...)` classmethod.
+

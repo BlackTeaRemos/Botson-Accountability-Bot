@@ -31,7 +31,10 @@ def test_json_dumps_compact() -> None:
 
 def test_generate_random_user_recent_dry_run() -> None:
     """Test GenerateRandomUserRecent with dry_run=True."""
-    from src.bot_main import GenerateRandomUserRecent
+    from src.commands.debug_functions import make_generate_random_user_recent
+    from unittest.mock import Mock
+
+    GenerateRandomUserRecent = make_generate_random_user_recent(Mock())
 
     channel_id = 12345
     user_id = "test_user"
@@ -63,7 +66,10 @@ def test_generate_random_user_recent_dry_run() -> None:
 
 def test_generate_random_user_recent_auto_user_id() -> None:
     """Test GenerateRandomUserRecent with auto-generated user_id."""
-    from src.bot_main import GenerateRandomUserRecent
+    from src.commands.debug_functions import make_generate_random_user_recent
+    from unittest.mock import Mock
+
+    GenerateRandomUserRecent = make_generate_random_user_recent(Mock())
 
     result = GenerateRandomUserRecent(
         channel_discord_id=12345,
@@ -79,7 +85,7 @@ def test_generate_random_user_recent_auto_user_id() -> None:
 @patch('src.bot_main.settings')
 def test_compute_overridden_config_no_overrides(mock_settings: Mock) -> None:
     """Test _ComputeOverriddenConfig with no DB overrides."""
-    from src.bot_main import _ComputeOverriddenConfig  # type: ignore
+    from src.computeConfig import _ComputeOverriddenConfig  # type: ignore
 
     # Mock settings to return None for all values
     mock_settings.get.return_value = None
@@ -113,7 +119,7 @@ def test_compute_overridden_config_no_overrides(mock_settings: Mock) -> None:
 @patch('src.bot_main.settings')
 def test_compute_overridden_config_with_overrides(mock_settings: Mock) -> None:
     """Test _ComputeOverriddenConfig with DB overrides."""
-    from src.bot_main import _ComputeOverriddenConfig  # type: ignore
+    from src.computeConfig import _ComputeOverriddenConfig  # type: ignore
 
     # Mock settings to return override values
     def mock_get(key: str) -> str | None:
@@ -160,7 +166,7 @@ def test_compute_overridden_config_with_overrides(mock_settings: Mock) -> None:
 @patch('src.bot_main.settings')
 def test_compute_overridden_config_invalid_values(mock_settings: Mock) -> None:
     """Test _ComputeOverriddenConfig with invalid DB values."""
-    from src.bot_main import _ComputeOverriddenConfig  # type: ignore
+    from src.computeConfig import _ComputeOverriddenConfig  # type: ignore
 
     # Mock settings to return invalid values
     def mock_get(key: str) -> str | None:
@@ -202,7 +208,7 @@ def test_compute_overridden_config_invalid_values(mock_settings: Mock) -> None:
 @patch('src.bot_main.settings')
 def test_compute_overridden_config_boolean_variations(mock_settings: Mock) -> None:
     """Test _ComputeOverriddenConfig boolean parsing variations."""
-    from src.bot_main import _ComputeOverriddenConfig  # type: ignore
+    from src.computeConfig import _ComputeOverriddenConfig  # type: ignore
 
     def mock_get(key: str) -> str | None:
         if key == "use_db_only":
@@ -235,7 +241,7 @@ def test_compute_overridden_config_boolean_variations(mock_settings: Mock) -> No
 @patch('src.bot_main.settings')
 def test_compute_overridden_config_tuple_parsing(mock_settings: Mock) -> None:
     """Test _ComputeOverriddenConfig tuple parsing variations."""
-    from src.bot_main import _ComputeOverriddenConfig  # type: ignore
+    from src.computeConfig import _ComputeOverriddenConfig  # type: ignore
 
     def mock_get(key: str) -> str | None:
         if key == "scheduled_report_channel_ids":
@@ -266,19 +272,19 @@ def test_generate_random_user_recent_with_db(db: Database, seed_channel: int) ->
     """Test GenerateRandomUserRecent with actual database writes."""
     from unittest.mock import patch
     from src.services.persistence import PersistenceService
+    from src.commands.debug_functions import make_generate_random_user_recent
 
-    # Mock the global storage variable
+    # Use a real PersistenceService instance and bind it to the generator
     mock_storage = PersistenceService(db)
-    with patch('src.bot_main.storage', mock_storage):
-        from src.bot_main import GenerateRandomUserRecent
+    GenerateRandomUserRecent = make_generate_random_user_recent(mock_storage)
 
-        # Use string for channel id to match Channel.discord_channel_id
-        result = GenerateRandomUserRecent(
-            channel_discord_id=str(seed_channel),
-            user_id="db_test_user",
-            messages=2,
-            dry_run=False
-        )
+    # Use string for channel id to match Channel.discord_channel_id
+    result = GenerateRandomUserRecent(
+        channel_discord_id=str(seed_channel),
+        user_id="db_test_user",
+        messages=2,
+        dry_run=False,
+    )
 
         assert result["user_id"] == "db_test_user"
         assert result["written"] is True
@@ -289,17 +295,16 @@ def test_generate_random_user_recent_unregistered_channel(db: Database) -> None:
     """Test GenerateRandomUserRecent with unregistered channel."""
     from unittest.mock import patch
     from src.services.persistence import PersistenceService
+    from src.commands.debug_functions import make_generate_random_user_recent
 
-    # Mock the global storage variable
     mock_storage = PersistenceService(db)
-    with patch('src.bot_main.storage', mock_storage):
-        from src.bot_main import GenerateRandomUserRecent
+    GenerateRandomUserRecent = make_generate_random_user_recent(mock_storage)
 
-        # Test with unregistered channel
-        with pytest.raises(ValueError, match="Channel .* not registered"):
-            GenerateRandomUserRecent(
-                channel_discord_id=99999,  # Assuming this channel is not registered
-                user_id="test_user",
-                messages=1,
-                dry_run=False
-            )
+    # Test with unregistered channel
+    with pytest.raises(ValueError, match="Channel .* not registered"):
+        GenerateRandomUserRecent(
+            channel_discord_id=99999,  # Assuming this channel is not registered
+            user_id="test_user",
+            messages=1,
+            dry_run=False,
+        )

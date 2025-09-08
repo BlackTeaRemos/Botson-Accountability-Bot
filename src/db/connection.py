@@ -6,7 +6,6 @@ from sqlalchemy.sql import text
 from typing import Any
 from collections.abc import Mapping, Sequence
 
-# Import table definitions from migrations and models
 from .migrations import metadata
 from .models import Base
 
@@ -19,22 +18,19 @@ class Database:
         Args:
             path: Path to SQLite database file.
         """
-        # Configure SQLite with WAL mode and foreign keys
-        self._engine = create_engine(  # SQLAlchemy engine instance
+        self._engine = create_engine(
             f"sqlite:///{path}",
             connect_args={
-                "check_same_thread": False,  # Allow multi-threading
+                "check_same_thread": False,
             },
             pool_pre_ping=True,
             echo=False,
         )
 
-        # Ensure SQLite pragmas are applied for every DBAPI connection taken from the pool
         def _set_sqlite_pragmas(dbapi_connection, connection_record):  # type: ignore[no-redef]
             try:
                 cursor = dbapi_connection.cursor()
                 cursor.execute("PRAGMA foreign_keys=ON")
-                # WAL is persistent per database; calling is harmless if already set
                 cursor.execute("PRAGMA journal_mode=WAL")
                 cursor.close()
             except Exception:
@@ -43,7 +39,7 @@ class Database:
 
         event.listen(self._engine, "connect", _set_sqlite_pragmas)  # type: ignore[arg-type]
 
-        self._session_factory = sessionmaker(  # Session factory for creating sessions
+        self._session_factory = sessionmaker(
             bind=self._engine,
             autocommit=False,
             autoflush=False,

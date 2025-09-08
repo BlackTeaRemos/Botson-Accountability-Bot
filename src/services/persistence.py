@@ -612,13 +612,16 @@ class PersistenceService:
         """
         from ..db.models import ScheduledEvent
         from datetime import datetime, timedelta, timezone
-        from .schedule_expression import compute_next_run_from_anchor
+        from .schedule_expression import compute_next_run_from_anchor, compute_next_run_from_week_expr
 
         session = self.db.GetSession()
         try:
             # compute next run as timezone-aware UTC datetime
             if schedule_anchor and schedule_expr:
-                next_run, _ = compute_next_run_from_anchor(schedule_anchor, schedule_expr, now=datetime.now(timezone.utc))
+                if schedule_anchor.strip().lower() == "week" and "@" in schedule_expr:
+                    next_run, _ = compute_next_run_from_week_expr(schedule_expr, now=datetime.now(timezone.utc))
+                else:
+                    next_run, _ = compute_next_run_from_anchor(schedule_anchor, schedule_expr, now=datetime.now(timezone.utc))
             else:
                 next_run = datetime.now(timezone.utc) + timedelta(minutes=interval_minutes)
             event = ScheduledEvent(

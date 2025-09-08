@@ -28,6 +28,17 @@ def scheduled_report(name: str) -> Callable[[Callable[..., Any]], Callable[..., 
     dispatch to either a bound ReportingService method (if available) or a
     standalone function. This allows EventScheduler to call registered keys
     without needing an instance reference.
+
+    Args:
+        name: The unique name/key for the scheduled report
+    
+    Returns:
+        A decorator which registers the wrapped function
+    
+    Example:
+        @scheduled_report("weekly_image")
+        async def weekly_image(bot, channel):
+            ...
     """
     def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         async def wrapper(*args: Any, **kwargs: Any) -> None:
@@ -237,30 +248,23 @@ class ReportingService:
 
     def _fetch_raw_scores(self, days: int) -> List[Dict[str, Any]]:
         """Return raw daily score rows; windowing is applied after normalization.
-
-        We intentionally fetch all rows ordered by date, because tests insert
-        historical fixed dates and expect `days` to mean "last N unique dates present"
-        rather than relative to current wall-clock time.
         """
         session: Session = self.db.GetSession()
         try:
-            # Query using SQLAlchemy ORM – fetch all and order by date
             scores = (
                 session.query(HabitDailyScore)
                 .order_by(HabitDailyScore.date.asc())
                 .all()
             )
 
-            # Convert to dictionary format matching the original structure
             result: List[Dict[str, Any]] = []
             for score in scores:
-                # Explicitly convert to builtin types for stable typing
                 result.append({
                     'user_id': str(score.user_id),
                     'date': str(score.date),
-                    'raw_score_sum': float(getattr(score, 'raw_score_sum')),  # robust attribute access
+                    'raw_score_sum': float(getattr(score, 'raw_score_sum')),
                 })
-            # Fallback: if ORM returned no rows (edge case in tests with multiple engines), use raw SQL
+            # Fallback: if ORM returned no rows
             if not result:
                 raw_rows = self.db.QueryRaw(
                     "SELECT user_id, date, raw_score_sum FROM habit_daily_scores ORDER BY date ASC"
@@ -273,7 +277,7 @@ class ReportingService:
                             'raw_score_sum': float(raw_sum),
                         })
                     except Exception:
-                        # Skip malformed raw rows silently; normalization will handle typical cases
+                        # Skip malformed raw rows silently
                         continue
             return result
         finally:
@@ -312,13 +316,6 @@ class ReportingService:
 
     def resolve_display_name(self, user_id: str, user_names: Dict[str, str] | None = None) -> str | None:
         """Resolve a human-friendly display name for a user.
-
-        Resolution order:
-        1) Provided mapping (guild members) if present
-        2) Last known author_display from Messages table
-        3) If matches test user heuristic, return user_id
-        4) Otherwise return None to indicate unresolved
-
         Args:
             user_id: The user identifier string.
             user_names: Optional explicit mapping of id->display name.
