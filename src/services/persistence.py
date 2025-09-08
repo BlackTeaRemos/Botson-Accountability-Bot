@@ -603,7 +603,7 @@ class PersistenceService:
         schedule_anchor: str | None = None,
         schedule_expr: str | None = None,
         target_user_id: str | None = None,
-        mention_type: str | None = 'user',
+    mention_type: str | None = 'none',
     ) -> int:
         """Add a new scheduled event.
 
@@ -630,7 +630,7 @@ class PersistenceService:
                 schedule_expr=schedule_expr,
                 schedule_anchor=schedule_anchor,
                 target_user_id=target_user_id,
-                mention_type=mention_type or 'user',
+                mention_type=(mention_type or 'none'),
             )
             session.add(event)
             session.commit()
@@ -665,7 +665,56 @@ class PersistenceService:
                     'schedule_expr': getattr(e, 'schedule_expr', None),
                     'schedule_anchor': getattr(e, 'schedule_anchor', None),
                     'target_user_id': getattr(e, 'target_user_id', None),
-                    'mention_type': getattr(e, 'mention_type', 'user'),
+                    'mention_type': getattr(e, 'mention_type', 'none'),
+                })
+            return result
+        finally:
+            session.close()
+
+    def list_due_events(
+        self,
+        *,
+        now_iso: str | None = None,
+        channel_discord_id: int | None = None,
+    ) -> list[dict[str, Any]]:
+        """List active scheduled events that are due (next_run <= now).
+
+        Args:
+            now_iso: Optional ISO8601 timestamp string for the cutoff time. If not provided, uses current UTC.
+            channel_discord_id: Optional channel filter.
+
+        Returns:
+            List of event dicts similar to list_events(), but only those due for execution.
+        """
+        from ..db.models import ScheduledEvent
+        from datetime import datetime, timezone
+        session = self.db.GetSession()
+        try:
+            # Compute current UTC time if not provided
+            if now_iso:
+                try:
+                    now_dt = datetime.fromisoformat(now_iso)
+                except Exception:
+                    now_dt = datetime.now(timezone.utc)
+            else:
+                now_dt = datetime.now(timezone.utc)
+            query = session.query(ScheduledEvent).filter(ScheduledEvent.active.is_(True))
+            if channel_discord_id is not None:
+                query = query.filter(ScheduledEvent.channel_id == str(channel_discord_id))
+            query = query.filter(ScheduledEvent.next_run <= now_dt)
+            events = query.all()
+            result: list[dict[str, Any]] = []
+            for e in events:
+                result.append({
+                    'id': cast(int, e.id),
+                    'channel_id': int(str(e.channel_id)),
+                    'interval_minutes': e.interval_minutes,
+                    'command': e.command,
+                    'next_run': e.next_run.isoformat(),
+                    'schedule_expr': getattr(e, 'schedule_expr', None),
+                    'schedule_anchor': getattr(e, 'schedule_anchor', None),
+                    'target_user_id': getattr(e, 'target_user_id', None),
+                    'mention_type': getattr(e, 'mention_type', 'none'),
                 })
             return result
         finally:

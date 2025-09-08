@@ -288,6 +288,13 @@ def RegisterBotCommands() -> None:
     # Register user-defined schedule commands
     from .commands.schedule_event import RegisterScheduleCommands
     RegisterScheduleCommands(bot, storage)
+    # Register reminder commands
+    try:
+        from .commands.reminder import RegisterReminderCommands  # type: ignore
+        RegisterReminderCommands(bot, storage)
+    except Exception as e:
+        # Non-fatal if reminder commands fail to register
+        print(f"[Commands] Reminder registration skipped: {e}")
 
     # Inline diagnostics command
     @bot.tree.command(name="diagnostics", description="Show basic diagnostics (db, counts, disk)")

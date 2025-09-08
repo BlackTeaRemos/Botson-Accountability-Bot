@@ -7,11 +7,12 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from sqlalchemy.orm import Session
 from ..db.connection import Database
-from ..db.models import HabitDailyScore
+from ..db.models import HabitDailyScore, Message
 from ..core.config import AppConfig
 
-# Registry for allowed scheduled reports. Values are async-callables bot, channel -> None
-schedulable_reports: dict[str, Callable[[Any, Any], Awaitable[None]]] = {}
+# Registry for allowed scheduled reports. Values are async-callables accepting
+# (bot, channel) or (bot, channel, ev). The scheduler will pass ev when supported.
+schedulable_reports: dict[str, Callable[..., Awaitable[None]]] = {}
 
 # Active ReportingService instance (set during ReportingService.__init__)
 _active_reporting_service: Any | None = None
@@ -29,16 +30,29 @@ def scheduled_report(name: str) -> Callable[[Callable[..., Any]], Callable[..., 
     without needing an instance reference.
     """
     def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
-        async def wrapper(bot: Any, channel: Any) -> None:
+        async def wrapper(*args: Any, **kwargs: Any) -> None:
+            # Support being called as (bot, channel) or (bot, channel, ev)
+            if len(args) >= 3:
+                bot, channel, ev = args[0], args[1], args[2]
+            elif len(args) >= 2:
+                bot, channel = args[0], args[1]
+                ev = kwargs.get("ev")
+            else:
+                raise TypeError("wrapper expects (bot, channel[, ev])")
+
             svc = _active_reporting_service
-            # If the function is implemented as a method on the active service,
-            # call that method (bound). Otherwise call the function directly.
             try:
                 if svc is not None and hasattr(svc, func.__name__):
                     method = getattr(svc, func.__name__)
-                    res = method(bot, channel)
+                    try:
+                        res = method(bot, channel, ev)
+                    except TypeError:
+                        res = method(bot, channel)
                 else:
-                    res = func(bot, channel)
+                    try:
+                        res = func(bot, channel, ev)
+                    except TypeError:
+                        res = func(bot, channel)
                 if asyncio.iscoroutine(res):
                     await res
             except Exception:
@@ -60,8 +74,15 @@ async def weekly_image(bot: Any, channel: Any):
     if svc is None:
         return
     try:
-        # Default style; interactive command path handles guild-specific style
-        buf, dates, warnings = svc.generate_weekly_table_image(days=7, style="style1")
+        # Use guild-specific style if available, otherwise default style1
+        guild_style = "style1"
+        try:
+            guild_id = getattr(getattr(channel, "guild", None), "id", None)
+            if guild_id is not None:
+                guild_style = svc.get_guild_report_style(int(guild_id))
+        except Exception:
+            pass
+        buf, dates, warnings = svc.generate_weekly_table_image(days=7, style=guild_style)
         if not dates:
             return
         try:
@@ -92,31 +113,84 @@ async def weekly_embed(bot: Any, channel: Any):
             import discord  # type: ignore
         except Exception:
             return
-        dates, per_user, totals, warnings = svc.get_weekly_structured(days=7)
+        # Build user display map from guild members if possible
+        user_display_names: dict[str, str] = {}
+        try:
+            guild_members = getattr(getattr(channel, "guild", None), "members", None)
+            if guild_members is not None:
+                user_display_names = {str(m.id): getattr(m, "display_name", str(m.id)) for m in guild_members}
+        except Exception:
+            pass
+
+        dates, per_user, _totals, warnings = svc.get_weekly_structured(days=7)
         if not dates:
             return
+
+        # Prepare human-readable dates and all-time totals
         human_dates = [datetime.strptime(d, '%Y-%m-%d').strftime('%a ') for d in dates]
-        # Build top users summary (up to 9)
+        all_time_totals = svc.get_all_time_totals()
+
+        # Build embeds matching interactive command formatting
         embeds: list[Any] = []
-        for user_entry in per_user[:9]:
+        resolved_users: list[dict[str, Any]] = []
+        for user_entry in per_user:
             uid = str(user_entry['user_id'])
-            display = f"<@{uid}>" if uid.isdigit() else uid[:8]
-            day_scores = ' '.join(f"{user_entry.get(d,0):4.1f}" for d in dates)
-            total_val = user_entry['total']
-            emb = discord.Embed(title=f"{display} Weekly Report", description=f"Last {len(dates)} days", color=0x5865F2)  # type: ignore[attr-defined]
-            emb.add_field(name="Dates", value=' '.join(human_dates), inline=False)
-            emb.add_field(name="Scores", value=day_scores, inline=False)
-            emb.add_field(name="Total", value=f"{total_val:.1f}", inline=False)
-            embeds.append(emb)
+            resolved = svc.resolve_display_name(uid, user_display_names)
+            if not resolved:
+                continue
+            resolved_users.append(user_entry)
+            display_name = resolved if len(resolved) <= 15 else resolved[:12] + '...'
+            # Daily lines block
+            daily_lines = []
+            for i, d in enumerate(dates):
+                day_name = human_dates[i].strip()
+                score = float(user_entry.get(d, 0) or 0)
+                daily_lines.append(f"{day_name} {score:.1f}")
+            # Per-user embed
+            emb = discord.Embed(title=f"Weekly Report - {display_name}", color=0x5865F2)  # type: ignore[attr-defined]
+            emb.add_field(name="Daily Scores", value="```\n" + "\n".join(daily_lines) + "\n```", inline=False)
+            emb.add_field(name="Total", value=f"{float(user_entry['total']):.1f}", inline=True)
+            emb.add_field(name="All Time", value=f"{float(all_time_totals.get(uid, 0.0)):.1f}", inline=True)
+            if len(embeds) < 9:
+                embeds.append(emb)
+
         # Summary embed
-        summary = discord.Embed(title="Weekly Summary", description=f"Top {min(len(per_user),9)} players", color=0x57F287)  # type: ignore[attr-defined]
-        summary.add_field(name="Dates", value=' '.join(human_dates), inline=False)
-        summary.add_field(name="Totals", value=' '.join(f"{totals[d]:.1f}" for d in dates), inline=False)
+        summary = discord.Embed(title="Weekly Summary", description=f"Top {min(len(per_user), 9)} players", color=0x57F287)  # type: ignore[attr-defined]
+        # Player scores table
+        user_score_lines: list[str] = []
+        for user_entry in per_user:
+            uid = str(user_entry['user_id'])
+            resolved = svc.resolve_display_name(uid, user_display_names)
+            if not resolved:
+                continue
+            display_name = resolved if len(resolved) <= 20 else resolved[:17] + '...'
+            weekly_total = float(user_entry['total'])
+            if len(user_score_lines) < 9:
+                user_score_lines.append(f"{display_name:<20} {weekly_total:>5.1f}")
+        if user_score_lines:
+            summary.add_field(name="Player Scores", value="```\n" + "\n".join(user_score_lines) + "\n```", inline=False)
         if warnings:
             warn_join = "\n".join(warnings[:5]) + ("\n..." if len(warnings) > 5 else "")
             summary.add_field(name="Data Notes", value=warn_join[:1000], inline=False)
         embeds.append(summary)
+
+        # Send embeds first
         await channel.send(embeds=embeds)
+
+        # If more than 9 resolved users, send image with guild style
+        if len(resolved_users) > 9:
+            guild_style = "style1"
+            try:
+                guild_id = getattr(getattr(channel, "guild", None), "id", None)
+                if guild_id is not None:
+                    guild_style = svc.get_guild_report_style(int(guild_id))
+            except Exception:
+                pass
+            buf, _human_dates_img, img_warnings = svc.generate_weekly_table_image(days=7, style=guild_style, user_names=user_display_names)
+            warn_text = "" if not img_warnings else "\n" + "\n".join(f"Note: {w}" for w in img_warnings[:5]) + ("\n..." if len(img_warnings) > 5 else "")
+            file = discord.File(buf, filename="weekly_report_full.png")  # type: ignore[attr-defined]
+            content = f"Full weekly table for all {len(resolved_users)} users." + warn_text
+            await channel.send(content=content, file=file)
     except Exception:
         raise
 
@@ -134,6 +208,32 @@ class ReportingService:
             _set_active_reporting_service(self)
         except Exception:
             pass
+
+    def get_guild_report_style(self, guild_id: int) -> str:
+        """Return the stored report style for a guild or 'style1' if unset.
+
+        Args:
+            guild_id: Discord guild/server id.
+
+        Returns:
+            A style key like 'style1', 'style2', etc.
+        """
+        try:
+            from ..db.models import GuildSetting  # local import to avoid cycles
+            session: Session = self.db.GetSession()
+            try:
+                setting = (
+                    session.query(GuildSetting)
+                    .filter(GuildSetting.guild_id == str(guild_id))
+                    .first()
+                )
+                if setting and getattr(setting, "report_style", None):
+                    return str(getattr(setting, "report_style"))
+                return "style1"
+            finally:
+                session.close()
+        except Exception:
+            return "style1"
 
     def _fetch_raw_scores(self, days: int) -> List[Dict[str, Any]]:
         """Return raw daily score rows; windowing is applied after normalization.
@@ -178,6 +278,64 @@ class ReportingService:
             return result
         finally:
             session.close()
+
+    def _get_last_known_display_name(self, user_id: str) -> str | None:
+        """Return the most recent stored author_display for a user if available.
+
+        Args:
+            user_id: The user identifier as stored in Message.author_id.
+
+        Returns:
+            The latest non-empty display name or None if not found.
+        """
+        session: Session = self.db.GetSession()
+        try:
+            result = (
+                session.query(Message.author_display)
+                .filter(Message.author_id == user_id, Message.author_display.isnot(None))
+                .order_by(Message.created_at.desc())
+                .first()
+            )
+            if not result:
+                return None
+            name = result[0] if isinstance(result, tuple) else getattr(result, 'author_display', None)
+            if isinstance(name, str) and name.strip():
+                return name.strip()
+            return None
+        finally:
+            session.close()
+
+    @staticmethod
+    def _is_test_user(user_id: str) -> bool:
+        """Detect synthetic test users which should always be included."""
+        return user_id.startswith("testuser_")
+
+    def resolve_display_name(self, user_id: str, user_names: Dict[str, str] | None = None) -> str | None:
+        """Resolve a human-friendly display name for a user.
+
+        Resolution order:
+        1) Provided mapping (guild members) if present
+        2) Last known author_display from Messages table
+        3) If matches test user heuristic, return user_id
+        4) Otherwise return None to indicate unresolved
+
+        Args:
+            user_id: The user identifier string.
+            user_names: Optional explicit mapping of id->display name.
+
+        Returns:
+            Resolved name string or None if unresolved and not a test user.
+        """
+        if user_names and user_id in user_names:
+            name = user_names[user_id]
+            if isinstance(name, str) and name.strip():
+                return name.strip()
+        db_name = self._get_last_known_display_name(user_id)
+        if db_name:
+            return db_name
+        if self._is_test_user(user_id):
+            return user_id
+        return None
 
     def _normalize(self, rows: List[Dict[str, Any]]) -> Tuple[Dict[str, Dict[str, float]], List[str]]:
         """Convert raw_score_sum (sum of per-message raw ratios) into a 0-5 scale based on absolute completion, not relative to other users.
@@ -273,7 +431,11 @@ class ReportingService:
         # Build rows in a clearly-indented block so the analyzer knows 'row' and 'score_map' are bound
         for user_id, score_map in sorted(normalized.items(), key=lambda kv: float(sum(kv[1].values())), reverse=True):
             # score_map: Dict[str, float]
-            display_name = user_names.get(user_id, user_id) if user_names else user_id
+            # Resolve via provided map or DB; skip if unresolved (except synthetic test users)
+            resolved_name = self.resolve_display_name(user_id, user_names)
+            if not resolved_name:
+                continue
+            display_name = resolved_name
             if len(display_name) > 15:
                 display_name = display_name[:12] + '...'
             row: List[Any] = [display_name] + [float(score_map.get(date, 0.0)) for date in all_dates]
@@ -452,3 +614,17 @@ class ReportingService:
         # Example: with open("weekly_habit_report.png", "wb") as f:
         #              f.write(buf.getvalue())
         return buf, human_dates, warnings
+
+@scheduled_report("reminder")
+async def reminder(bot: Any, channel: Any, ev: Dict[str, Any] | None = None) -> None:
+    """Post a custom reminder message stored in the event's command as 'reminder:<text>'."""
+    try:
+        text = ""
+        if ev and isinstance(ev.get("command"), str):
+            cmd: str = ev["command"]  # type: ignore[index]
+            if ":" in cmd:
+                text = cmd.split(":", 1)[1].strip()
+        if text:
+            await channel.send(text)
+    except Exception:
+        raise

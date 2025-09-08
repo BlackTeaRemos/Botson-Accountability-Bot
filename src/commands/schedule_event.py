@@ -1,18 +1,58 @@
 """Slash commands for user-defined scheduled events."""
 from __future__ import annotations
 
-# pyright: reportUnusedFunction=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnknownArgumentType=false, reportUnknownParameterType=false
+# pyright: reportUnusedFunction=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnknownArgumentType=false, reportUnknownParameterType=false, reportMissingImports=false
 from typing import Any
 import discord
 from discord import app_commands
 from ..services.persistence import PersistenceService
 from ..services.reporting import schedulable_reports  # add registry import
 from ..security import safe_send, has_admin
+from ..security.interaction_chain import Chain
 
 
 def RegisterScheduleCommands(bot: Any, storage: PersistenceService) -> None:
     """Register schedule slash commands."""
     schedule_group = app_commands.Group(name="schedule", description="Manage custom scheduled events")
+
+    async def _send_public(interaction: discord.Interaction, content: str) -> None:
+        """Best-effort send of a public message in the current channel.
+
+        Handles various channel types by duck-typing the 'send' attribute.
+        Swallows errors silently so it will not break the interaction flow.
+        """
+        try:
+            ch = getattr(interaction, "channel", None)
+            # Only attempt on text or thread-like channels
+            allowed_types = {
+                getattr(discord.ChannelType, "text", None),
+                getattr(discord.ChannelType, "news", None),
+                getattr(discord.ChannelType, "public_thread", None),
+                getattr(discord.ChannelType, "private_thread", None),
+                getattr(discord.ChannelType, "news_thread", None),
+            }
+            if ch is not None and hasattr(ch, "send"):
+                ctype = getattr(ch, "type", None)
+                if ctype in allowed_types:
+                    try:
+                        await ch.send(content)  # type: ignore[attr-defined]
+                        return
+                    except Exception:
+                        pass
+            cid = getattr(interaction, "channel_id", None)
+            if cid and hasattr(bot, "get_channel"):
+                target = bot.get_channel(cid)
+                if target is not None and hasattr(target, "send"):
+                    ttype = getattr(target, "type", None)
+                    if ttype not in allowed_types:
+                        return
+                    try:
+                        await target.send(content)  # type: ignore[attr-defined]
+                        return
+                    except Exception:
+                        pass
+        except Exception:
+            pass
     @schedule_group.command(name="create_anchored", description="Create a weekly anchored scheduled event")
     @app_commands.describe(
         report_type="Scheduled report type",
@@ -46,6 +86,8 @@ def RegisterScheduleCommands(bot: Any, storage: PersistenceService) -> None:
                 f"Anchored event {event_id} created: {report_type} every '{expression}' (weekly).",
                 ephemeral=True,
             )
+            # Also post a public confirmation to the channel
+            await _send_public(interaction, f"Scheduled event {event_id} created: {report_type} every '{expression}'.")
         except Exception as e:
             await safe_send(interaction, f"Error creating anchored event: {e}", ephemeral=True)
     @CreateAnchoredEvent.autocomplete('report_type')
@@ -120,52 +162,6 @@ def RegisterScheduleCommands(bot: Any, storage: PersistenceService) -> None:
                 except Exception:
                     pass
 
-    class ReportTypeWizardReportSelect(discord.ui.View):
-        """Step 1: choose a report type; then ask for expression via message."""
-        def __init__(self, storage: PersistenceService, report_types: list[str], bot: Any, timeout: float | None = 180.0):
-            super().__init__(timeout=timeout)
-            self.storage = storage
-            self.bot = bot
-            options = [discord.SelectOption(label=rt, value=rt) for rt in report_types] or [
-                discord.SelectOption(label="No available reports", value="__none__", default=True, description="Nothing to select")
-            ]
-            self.select: Any = discord.ui.Select(
-                placeholder="Choose report type",
-                min_values=1,
-                max_values=1,
-                options=options,
-                disabled=(len(options) == 1 and options[0].value == "__none__"),
-                custom_id="report_type_select_v2",
-            )
-            self.add_item(self.select)
-
-            async def _on_select(interaction: discord.Interaction) -> None:
-                try:
-                    if not self.select.values or self.select.values[0] == "__none__":
-                        await interaction.response.send_message("No selectable reports.", ephemeral=True)
-                        return
-                    chosen = self.select.values[0]
-                    # Show an explanation and a button to open a private modal for entering the interval
-                    explanation = (
-                        "Step 2 - Enter interval:\n"
-                        "This schedule is anchored weekly (aligned to Monday 00:00 UTC).\n"
-                        "Enter an offset using tokens: w (weeks), d (days), h (hours), m (minutes).\n"
-                        "Examples: d2h4 (2 days, 4 hours), h12 (every 12 hours), w1 (every week).\n\n"
-                        "Click the button below to open a private box to type the interval."
-                    )
-                    view = ExpressionPromptView(self.storage, chosen, self.bot)
-                    await interaction.response.send_message(explanation, view=view, ephemeral=True)
-                except Exception as e:
-                    try:
-                        await interaction.response.send_message(f"Error: {e}", ephemeral=True)
-                    except Exception:
-                        try:
-                            await interaction.followup.send(f"Error: {e}", ephemeral=True)
-                        except Exception:
-                            pass
-
-            self.select.callback = _on_select  # type: ignore[assignment]
-
     class ExpressionModal(discord.ui.Modal, title="Enter Expression"):
         def __init__(self, storage: PersistenceService, report_type: str, bot: Any):
             super().__init__()
@@ -228,10 +224,13 @@ def RegisterScheduleCommands(bot: Any, storage: PersistenceService) -> None:
                         # Open private modal to capture user id or 'me'
                         await interaction.response.send_modal(UserIdModal(self.storage, self.report_type, self.expr))
                         return
-
+                    # For 'none', don't set a target; no mention will be sent
                     target_user_id: str | None = None
-                    if mt == "none":
-                        target_user_id = str(interaction.user.id)  # default to creator even if not mentioned
+
+                    # If this is a reminder event, ask for custom message before creation
+                    if self.report_type == "reminder":
+                        await interaction.response.send_modal(ReminderTextModal(self.storage, self.expr, mention_type=mt, target_user_id=target_user_id))
+                        return
 
                     cid = interaction.channel_id
                     if cid is None:
@@ -247,7 +246,7 @@ def RegisterScheduleCommands(bot: Any, storage: PersistenceService) -> None:
                         schedule_anchor="week",
                         schedule_expr=self.expr,
                         target_user_id=target_user_id,
-                        mention_type=None if mt == 'none' else mt,
+                        mention_type=mt,
                     )
                     note = (
                         "No mention." if mt == 'none' else (
@@ -266,6 +265,8 @@ def RegisterScheduleCommands(bot: Any, storage: PersistenceService) -> None:
                             f"Created weekly event {event_id}: {self.report_type} every '{self.expr}'. {note}",
                             ephemeral=True,
                         )
+                    # Also post a public confirmation to the channel
+                    await _send_public(interaction, f"Scheduled event {event_id} created: {self.report_type} every '{self.expr}'. {note}")
                 except Exception as e:
                     try:
                         await interaction.response.send_message(f"Error: {e}", ephemeral=True)
@@ -310,6 +311,24 @@ def RegisterScheduleCommands(bot: Any, storage: PersistenceService) -> None:
                             await interaction.response.send_message("Permission check failed.", ephemeral=True)
                             return
                     target_user_id = raw
+                # For reminder, we cannot open another modal from a modal submit. Send a button to open the next modal.
+                if self.report_type == "reminder":
+                    view = discord.ui.View(timeout=120)
+                    open_btn: Any = discord.ui.Button(label="Enter reminder text", style=discord.ButtonStyle.primary, custom_id="open_reminder_text_v1")
+
+                    async def _open_next(i: discord.Interaction):  # separate interaction -> can open modal
+                        try:
+                            await i.response.send_modal(ReminderTextModal(self.storage, self.expr, mention_type="user", target_user_id=target_user_id))
+                        except Exception as e:
+                            try:
+                                await i.followup.send(f"Error: {e}", ephemeral=True)
+                            except Exception:
+                                pass
+
+                    open_btn.callback = _open_next  # type: ignore[method-assign]
+                    view.add_item(open_btn)  # type: ignore[arg-type]
+                    await interaction.response.send_message("Click the button to enter the reminder text:", view=view, ephemeral=True)
+                    return
 
                 cid = interaction.channel_id
                 if cid is None:
@@ -331,21 +350,87 @@ def RegisterScheduleCommands(bot: Any, storage: PersistenceService) -> None:
                     f"Created weekly event {event_id}: {self.report_type} every '{self.expr}'. Will ping <@{target_user_id}>.",
                     ephemeral=True,
                 )
+                # Also post a public confirmation to the channel
+                await _send_public(interaction, f"Scheduled event {event_id} created: {self.report_type} every '{self.expr}'. Will ping <@{target_user_id}>.")
             except Exception as e:
                 await interaction.response.send_message(f"Error: {e}", ephemeral=True)
+
+    class ReminderTextModal(discord.ui.Modal, title="Reminder Message"):
+        def __init__(self, storage: PersistenceService, expr: str, *, mention_type: str, target_user_id: str | None):
+            super().__init__()
+            self.storage = storage
+            self.expr = expr
+            self.mention_type = mention_type
+            self.target_user_id = target_user_id
+            self.text_input: Any = discord.ui.TextInput(
+                label="Message to post",
+                placeholder="Don't forget to hydrate!",
+                required=True,
+                max_length=1500,
+                style=discord.TextStyle.paragraph,
+            )
+            self.add_item(self.text_input)
+
+        async def on_submit(self, interaction: discord.Interaction):
+            msg = str(self.text_input.value or "").strip()
+            if not msg:
+                await interaction.response.send_message("Message cannot be empty.", ephemeral=True)
+                return
+            cid = interaction.channel_id
+            if cid is None:
+                await interaction.response.send_message("Must be used in a channel.", ephemeral=True)
+                return
+            # Store as command with a 'reminder:' prefix
+            command_key = f"reminder:{msg}"
+            event_id = self.storage.add_event(
+                channel_discord_id=cid,
+                interval_minutes=0,
+                command=command_key,
+                schedule_anchor="week",
+                schedule_expr=self.expr,
+                target_user_id=self.target_user_id,
+                mention_type=self.mention_type,
+            )
+            await interaction.response.send_message(
+                f"Created weekly reminder {event_id} every '{self.expr}'.",
+                ephemeral=True,
+            )
+            # Also post a public confirmation to the channel
+            await _send_public(interaction, f"Scheduled reminder {event_id} created (every '{self.expr}').")
 
     class ScheduleManagerView(discord.ui.View):
         def __init__(self, storage: PersistenceService, items: list[dict[str, Any]], timeout: float | None = 120.0):
             super().__init__(timeout=timeout)
             self.storage = storage
             self.items_cache = items
+            def _clamp(s: str, max_len: int = 100) -> str:
+                if len(s) <= max_len:
+                    return s
+                return s[: max_len - 3] + "..."
+
             options: list[discord.SelectOption] = []
             for ev in items:
-                if ev.get('schedule_anchor') and ev.get('schedule_expr'):
-                    label = f"ID {ev['id']} | {ev['command']} | {ev['schedule_anchor']}:{ev['schedule_expr']}"
+                # Derive base command and optional details (e.g., reminder text)
+                raw_cmd = str(ev.get('command', ''))
+                if ':' in raw_cmd:
+                    cmd_base, cmd_detail = raw_cmd.split(':', 1)
                 else:
-                    label = f"ID {ev['id']} | {ev['command']} | {ev['interval_minutes']}m"
-                options.append(discord.SelectOption(label=label, value=str(ev['id'])))
+                    cmd_base, cmd_detail = raw_cmd, None
+
+                # Build a concise label and, if applicable, a description preview
+                if ev.get('schedule_anchor') and ev.get('schedule_expr'):
+                    label = f"ID {ev['id']} | {cmd_base} | {ev['schedule_anchor']}:{ev['schedule_expr']}"
+                else:
+                    label = f"ID {ev['id']} | {cmd_base} | {ev.get('interval_minutes', 0)}m"
+                label = _clamp(label, 100)
+
+                description: str | None = None
+                if cmd_base == 'reminder' and cmd_detail:
+                    preview = cmd_detail.strip()
+                    if preview:
+                        description = _clamp(preview, 100)
+
+                options.append(discord.SelectOption(label=label, value=str(ev['id']), description=description))
 
             # Ensure select always has at least one option and a valid max_values
             disabled = False
@@ -411,8 +496,37 @@ def RegisterScheduleCommands(bot: Any, storage: PersistenceService) -> None:
 
         @discord.ui.button(label="Create Anchored", style=discord.ButtonStyle.success, custom_id="schedule_create_anchored_v2")
         async def create_anchored(self, interaction: discord.Interaction, button: Any):
-            view = ReportTypeWizardReportSelect(self.storage, list(schedulable_reports.keys()), bot)
-            await interaction.response.send_message("Select a report type to schedule:", view=view, ephemeral=True)
+            try:
+                # Use chainable helper for report type pick, then continue with the existing ExpressionPromptView
+                async def _on_pick(i: discord.Interaction, value: Any) -> None:
+                    chosen = str(value)
+                    explanation = (
+                        "Step 2 - Enter interval:\n"
+                        "This schedule is anchored weekly (aligned to Monday 00:00 UTC).\n"
+                        "Enter an offset using tokens: w (weeks), d (days), h (hours), m (minutes).\n"
+                        "Examples: d2h4 (2 days, 4 hours), h12 (every 12 hours), w1 (every week).\n\n"
+                        "Click the button below to open a private box to type the interval."
+                    )
+                    view2 = ExpressionPromptView(self.storage, chosen, bot)
+                    try:
+                        if not i.response.is_done():
+                            await i.response.send_message(explanation, view=view2, ephemeral=True)
+                        else:
+                            await i.followup.send(explanation, view=view2, ephemeral=True)
+                    except Exception:
+                        await safe_send(i, "Could not present the expression prompt.", ephemeral=True)
+
+                # Include 'reminder' as a special option. Ensure unique values to satisfy Discord's select constraints.
+                registry_keys = list(dict.fromkeys(list(schedulable_reports.keys())))
+                # Remove 'reminder' if already present to avoid duplicates
+                registry_keys = [k for k in registry_keys if k != "reminder"]
+                report_options = ["reminder"] + registry_keys
+                await Chain("Select a report type to schedule:") \
+                    .with_select(report_options, placeholder="Pick a report type or 'reminder'") \
+                    .on_invoke(_on_pick) \
+                    .send(interaction)
+            except Exception as e:
+                await safe_send(interaction, f"Failed to open creation flow: {e}", ephemeral=True)
 
     @schedule_group.command(name="manage", description="Open schedule manager UI")
     async def ManageSchedule(interaction: discord.Interaction):
