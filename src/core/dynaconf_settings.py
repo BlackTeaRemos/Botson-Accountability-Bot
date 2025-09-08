@@ -71,7 +71,6 @@ def GetSettings(reload: bool = False) -> AppConfig:
         if reload:
             settings.reload()  # type: ignore
 
-        # Prefer value from settings files; if absent, fall back to unprefixed OS env DISCORD_TOKEN
         token_from_settings: Any = settings.get("DISCORD_TOKEN", None)  # type: ignore[arg-type]
         if token_from_settings in (None, ""):
             token_env = os.environ.get("DISCORD_TOKEN", "")
@@ -80,7 +79,6 @@ def GetSettings(reload: bool = False) -> AppConfig:
             if isinstance(token_from_settings, str):
                 token = token_from_settings
             else:
-                # Explicit cast to appease type checkers when dynaconf returns Any/Unknown
                 token = "" if token_from_settings in (None, "") else f"{token_from_settings}"
 
         guild_id_raw = settings.get("GUILD_ID", None)  # type: ignore

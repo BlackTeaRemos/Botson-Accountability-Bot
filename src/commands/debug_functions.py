@@ -104,9 +104,6 @@ def _generate_random_user_recent_impl(
 def make_generate_random_user_recent(storage) -> Callable[..., Dict[str, Any]]:
     """Return a callable with the same signature as the old module-level
     GenerateRandomUserRecent by binding the provided `storage` instance.
-
-    This allows callers (like the debug command registration) to continue
-    invoking the function with the same arguments they used previously.
     """
 
     def _bound(

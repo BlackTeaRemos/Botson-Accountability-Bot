@@ -39,13 +39,8 @@ def RegisterReportingCommands(
                                user_display_names: dict[str, str], followup: bool = False) -> None:
         """Helper function to send embed report, either as initial response or followup."""
         
-        # Prepare human-readable dates
         human_readable_dates = [datetime.strptime(d, '%Y-%m-%d').strftime('%a ') for d in date_list]
-
-        # Get all-time totals
         all_time_totals = reporting.get_all_time_totals()
-
-        # Build individual embeds for top users; resolve names with fallback and skip unresolved
         embed_list: list[discord.Embed] = []
         for user_data in per_user_data:
             user_id_string = str(user_data['user_id'])
@@ -63,33 +58,27 @@ def RegisterReportingCommands(
                 score = user_data.get(date, 0)
                 daily_lines.append(f"{day_name} {score:.1f}")
             
-            # Get all-time total
             all_time_total = all_time_totals.get(user_id_string, 0)
             
-            # Create embed with proper field formatting
             embed = discord.Embed(
                 title=f"Weekly Report - {display_name}", 
                 color=0x5865F2
             )
             
-            # Add daily scores as a field
             embed.add_field(
                 name="Daily Scores", 
                 value="```\n" + "\n".join(daily_lines) + "\n```", 
                 inline=False
             )
             
-            # Add totals as separate fields
             embed.add_field(name="Total", value=f"{user_data['total']:.1f}", inline=True)
             embed.add_field(name="All Time", value=f"{all_time_total:.1f}", inline=True)
             
             if len(embed_list) < 9:
                 embed_list.append(embed)
 
-        # Summary embed with totals and warnings
         summary_embed = discord.Embed(title="Weekly Summary", description=f"Top {min(len(per_user_data), 9)} players", color=0x57F287)
         
-        # Create user scores list for the summary
         user_score_lines: list[str] = []
         for user_data in per_user_data:
             user_id_string = str(user_data['user_id'])
@@ -103,7 +92,6 @@ def RegisterReportingCommands(
             if len(user_score_lines) < 9:
                 user_score_lines.append(f"{display_name:<20} {weekly_total:>5.1f}")
         
-        # Add user scores as a formatted field
         summary_embed.add_field(
             name="Player Scores", 
             value="```\n" + "\n".join(user_score_lines) + "\n```", 
@@ -148,17 +136,14 @@ def RegisterReportingCommands(
                     f"(dates: {deleted_dates_string}).\n"
                 )
 
-            # Fetch user names for display
             user_display_names = {}
             if interaction.guild:
                 try:
-                    # Get all members to build name map
                     members = interaction.guild.members
                     user_display_names = {str(member.id): member.display_name for member in members}
                 except Exception:
                     pass  # If fetching fails, fall back to IDs
 
-            # Get structured data to check user count
             date_list, per_user_data, _daily_totals, warnings_list = reporting.get_weekly_structured(days=7)
             if any('Dropped row' in w or 'Dropped' in w for w in warnings_list):
                 deleted_rows, deleted_dates_list = storage.purge_non_iso_dates(channel_id)
@@ -175,11 +160,9 @@ def RegisterReportingCommands(
                 await interaction.response.send_message("No data for last 7 days yet.", ephemeral=True)
                 return
 
-            # Check user count to decide format
             user_count = len(per_user_data)
 
             if user_count < 10:
-                # Use embed format for fewer users
                 await _send_embed_report(
                     interaction,
                     date_list,
@@ -201,7 +184,6 @@ def RegisterReportingCommands(
                     user_display_names,
                 )
 
-                # Generate image after initial response
                 image_buffer, _dates, warnings = reporting.generate_weekly_table_image(
                     days=7, style=guild_style or "style1", user_names=user_display_names
                 )
@@ -212,11 +194,9 @@ def RegisterReportingCommands(
                     else "\n" + "\n".join(f"Note: {w}" for w in warnings[:5]) + ("\n..." if len(warnings) > 5 else "")
                 )
                 message_content = (
-                    # Purge notes are already included in the embed; keep image caption concise
-                    "Weekly normalized scores (0-5 per day, scaled by daily max)." + warning_message
+                    "Weekly normalized scores." + warning_message
                 )
 
-                # Then send image as a follow-up
                 await interaction.followup.send(
                     content=message_content,
                     file=file,
@@ -250,11 +230,9 @@ def RegisterReportingCommands(
                     f"(dates: {deleted_dates_string}).\n"
                 )
 
-            # Fetch user names for display
             user_display_names = {}
             if interaction.guild:
                 try:
-                    # Get all members to build name map
                     members = interaction.guild.members
                     user_display_names = {str(member.id): member.display_name for member in members}
                 except Exception:
@@ -276,13 +254,8 @@ def RegisterReportingCommands(
                 await interaction.response.send_message("No data for last 7 days yet.", ephemeral=True)
                 return
 
-            # Prepare human-readable dates
             human_readable_dates = [datetime.strptime(d, '%Y-%m-%d').strftime('%a ') for d in date_list]
-
-            # Get all-time totals
             all_time_totals = reporting.get_all_time_totals()
-
-            # Build individual embeds for top users; resolve names and skip unresolved
             embed_list: list[discord.Embed] = []
             for user_data in per_user_data:
                 user_id_string = str(user_data['user_id'])
@@ -300,33 +273,27 @@ def RegisterReportingCommands(
                     score = user_data.get(date, 0)
                     daily_lines.append(f"{day_name} {score:.1f}")
                 
-                # Get all-time total
                 all_time_total = all_time_totals.get(user_id_string, 0)
                 
-                # Create embed with proper field formatting
                 embed = discord.Embed(
                     title=f"Weekly Report - {display_name}", 
                     color=0x5865F2
                 )
                 
-                # Add daily scores as a field
                 embed.add_field(
                     name="Daily Scores", 
                     value="```\n" + "\n".join(daily_lines) + "\n```", 
                     inline=False
                 )
                 
-                # Add totals as separate fields
                 embed.add_field(name="Total", value=f"{user_data['total']:.1f}", inline=True)
                 embed.add_field(name="All Time", value=f"{all_time_total:.1f}", inline=True)
                 
                 if len(embed_list) < 9:
                     embed_list.append(embed)
 
-            # Summary embed with totals and warnings
             summary_embed = discord.Embed(title="Weekly Summary", description=f"Top {min(len(per_user_data), 9)} players", color=0x57F287)
             
-            # Create user scores list for the summary
             user_score_lines: list[str] = []
             for user_data in per_user_data:
                 user_id_string = str(user_data['user_id'])
@@ -340,7 +307,6 @@ def RegisterReportingCommands(
                 if len(user_score_lines) < 9:
                     user_score_lines.append(f"{display_name:<20} {weekly_total:>5.1f}")
             
-            # Add user scores as a formatted field
             summary_embed.add_field(
                 name="Player Scores", 
                 value="```\n" + "\n".join(user_score_lines) + "\n```", 
@@ -429,7 +395,6 @@ def RegisterReportingCommands(
             else:
                 await interaction.followup.send(f"Backfill failed: {e}", ephemeral=True)
 
-    # ----- New grouped commands under /report -----
     from discord import app_commands
 
     report_group = app_commands.Group(name="report", description="Reporting commands")
@@ -468,10 +433,8 @@ def RegisterReportingCommands(
     async def ReportStyleSet(interaction: discord.Interaction, style: str):
         await _set_report_style_implementation(interaction, style)
 
-    # Finally, add the group (and its subgroup) to the bot tree
     bot.tree.add_command(report_group)
 
-    # Keep explicit references to subcommand callables to appease static analyzers
     _registered_report_commands: dict[str, object] = {
         "weekly": ReportWeekly,
         "embed": ReportEmbed,

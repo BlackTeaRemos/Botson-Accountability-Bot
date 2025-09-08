@@ -227,7 +227,6 @@ def RegisterScheduleCommands(bot: Any, storage: PersistenceService) -> None:
                     # For 'none', don't set a target; no mention will be sent
                     target_user_id: str | None = None
 
-                    # If this is a reminder event, ask for custom message before creation
                     if self.report_type == "reminder":
                         await interaction.response.send_modal(ReminderTextModal(self.storage, self.expr, mention_type=mt, target_user_id=target_user_id))
                         return
@@ -265,8 +264,7 @@ def RegisterScheduleCommands(bot: Any, storage: PersistenceService) -> None:
                             f"Created weekly event {event_id}: {self.report_type} every '{self.expr}'. {note}",
                             ephemeral=True,
                         )
-                    # Also post a public confirmation to the channel
-                    await _send_public(interaction, f"Scheduled event {event_id} created: {self.report_type} every '{self.expr}'. {note}")
+
                 except Exception as e:
                     try:
                         await interaction.response.send_message(f"Error: {e}", ephemeral=True)
@@ -311,7 +309,7 @@ def RegisterScheduleCommands(bot: Any, storage: PersistenceService) -> None:
                             await interaction.response.send_message("Permission check failed.", ephemeral=True)
                             return
                     target_user_id = raw
-                # For reminder, we cannot open another modal from a modal submit. Send a button to open the next modal.
+
                 if self.report_type == "reminder":
                     view = discord.ui.View(timeout=120)
                     open_btn: Any = discord.ui.Button(label="Enter reminder text", style=discord.ButtonStyle.primary, custom_id="open_reminder_text_v1")
@@ -350,8 +348,6 @@ def RegisterScheduleCommands(bot: Any, storage: PersistenceService) -> None:
                     f"Created weekly event {event_id}: {self.report_type} every '{self.expr}'. Will ping <@{target_user_id}>.",
                     ephemeral=True,
                 )
-                # Also post a public confirmation to the channel
-                await _send_public(interaction, f"Scheduled event {event_id} created: {self.report_type} every '{self.expr}'. Will ping <@{target_user_id}>.")
             except Exception as e:
                 await interaction.response.send_message(f"Error: {e}", ephemeral=True)
 
@@ -395,8 +391,6 @@ def RegisterScheduleCommands(bot: Any, storage: PersistenceService) -> None:
                 f"Created weekly reminder {event_id} every '{self.expr}'.",
                 ephemeral=True,
             )
-            # Also post a public confirmation to the channel
-            await _send_public(interaction, f"Scheduled reminder {event_id} created (every '{self.expr}').")
 
     class ScheduleManagerView(discord.ui.View):
         def __init__(self, storage: PersistenceService, items: list[dict[str, Any]], timeout: float | None = 120.0):
@@ -457,7 +451,7 @@ def RegisterScheduleCommands(bot: Any, storage: PersistenceService) -> None:
                 except Exception:
                     # Already acknowledged or transient issue
                     pass
-            # Bind the callback explicitly for dynamically created Select
+
             self.select.callback = _on_select  # type: ignore[assignment]
 
         @discord.ui.button(label="Refresh", style=discord.ButtonStyle.secondary)
