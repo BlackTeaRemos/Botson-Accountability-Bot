@@ -111,15 +111,18 @@ class EventScheduler:
             # dispatch via approved scheduled reports registry
             from ..services.reporting import schedulable_reports
 
+            # For commands with parameters (like reminder:<text>), map to base key
             lookup = command
+            if isinstance(command, str) and ":" in command:
+                lookup = command.split(":", 1)[0]
 
             func = schedulable_reports.get(lookup)
             if not func:
                 self.logger.warning("Scheduled report not found: %s (original: %s)", lookup, command)
             else:
                 self.logger.info("Executing scheduled report %s (orig: %s) in channel %s", lookup, command, channel_id)
-                # Send a mention before the report according to mention_type
-                mention_type = (ev.get('mention_type') or 'user').lower()
+                # Send a mention before the report according to mention_type (default: none)
+                mention_type = (ev.get('mention_type') or 'none').lower()
                 try:
                     if mention_type == 'everyone':
                         await chan.send("@everyone")
@@ -129,9 +132,16 @@ class EventScheduler:
                         target = ev.get('target_user_id')
                         if target and str(target).isdigit():
                             await chan.send(f"<@{target}>")
+                    else:
+                        # 'none' or unknown: no pre-mention
+                        pass
                 except Exception:
                     self.logger.warning("Failed to send mention for event %s", ev.get('id'))
-                result = func(self.bot, chan)
+                # Call handler; pass event dict when supported
+                try:
+                    result = func(self.bot, chan, ev)
+                except TypeError:
+                    result = func(self.bot, chan)
                 if asyncio.iscoroutine(result):
                     await result
         except Exception:

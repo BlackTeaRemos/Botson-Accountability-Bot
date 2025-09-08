@@ -603,7 +603,7 @@ class PersistenceService:
         schedule_anchor: str | None = None,
         schedule_expr: str | None = None,
         target_user_id: str | None = None,
-        mention_type: str | None = 'user',
+    mention_type: str | None = 'none',
     ) -> int:
         """Add a new scheduled event.
 
@@ -630,7 +630,7 @@ class PersistenceService:
                 schedule_expr=schedule_expr,
                 schedule_anchor=schedule_anchor,
                 target_user_id=target_user_id,
-                mention_type=mention_type or 'user',
+                mention_type=(mention_type or 'none'),
             )
             session.add(event)
             session.commit()
@@ -665,7 +665,7 @@ class PersistenceService:
                     'schedule_expr': getattr(e, 'schedule_expr', None),
                     'schedule_anchor': getattr(e, 'schedule_anchor', None),
                     'target_user_id': getattr(e, 'target_user_id', None),
-                    'mention_type': getattr(e, 'mention_type', 'user'),
+                    'mention_type': getattr(e, 'mention_type', 'none'),
                 })
             return result
         finally:
@@ -714,7 +714,7 @@ class PersistenceService:
                     'schedule_expr': getattr(e, 'schedule_expr', None),
                     'schedule_anchor': getattr(e, 'schedule_anchor', None),
                     'target_user_id': getattr(e, 'target_user_id', None),
-                    'mention_type': getattr(e, 'mention_type', 'user'),
+                    'mention_type': getattr(e, 'mention_type', 'none'),
                 })
             return result
         finally:

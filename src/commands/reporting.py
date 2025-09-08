@@ -45,17 +45,14 @@ def RegisterReportingCommands(
         # Get all-time totals
         all_time_totals = reporting.get_all_time_totals()
 
-        # Build individual embeds for top 9 users sorted by total descending
+        # Build individual embeds for top users; resolve names with fallback and skip unresolved
         embed_list: list[discord.Embed] = []
-        for user_data in per_user_data[:9]:
+        for user_data in per_user_data:
             user_id_string = str(user_data['user_id'])
-            
-            # Use display name if available, otherwise create mention
-            if user_id_string in user_display_names:
-                display_name = f"@{user_display_names[user_id_string]}"
-            else:
-                display_name = f"<@{user_id_string}>" if user_id_string.isdigit() else user_id_string[:8]
-            
+            resolved = reporting.resolve_display_name(user_id_string, user_display_names)
+            if not resolved:
+                continue
+            display_name = resolved
             if len(display_name) > 15:
                 display_name = display_name[:12] + '...'
             
@@ -86,27 +83,25 @@ def RegisterReportingCommands(
             embed.add_field(name="Total", value=f"{user_data['total']:.1f}", inline=True)
             embed.add_field(name="All Time", value=f"{all_time_total:.1f}", inline=True)
             
-            embed_list.append(embed)
+            if len(embed_list) < 9:
+                embed_list.append(embed)
 
         # Summary embed with totals and warnings
         summary_embed = discord.Embed(title="Weekly Summary", description=f"Top {min(len(per_user_data), 9)} players", color=0x57F287)
         
         # Create user scores list for the summary
         user_score_lines: list[str] = []
-        for user_data in per_user_data[:9]:
+        for user_data in per_user_data:
             user_id_string = str(user_data['user_id'])
-            
-            # Use display name if available, otherwise create mention
-            if user_id_string in user_display_names:
-                display_name = f"@{user_display_names[user_id_string]}"
-            else:
-                display_name = f"<@{user_id_string}>" if user_id_string.isdigit() else user_id_string[:8]
-            
+            resolved = reporting.resolve_display_name(user_id_string, user_display_names)
+            if not resolved:
+                continue
+            display_name = resolved
             if len(display_name) > 20:  # Shorter limit for summary
                 display_name = display_name[:17] + '...'
-            
             weekly_total = user_data['total']
-            user_score_lines.append(f"{display_name:<20} {weekly_total:>5.1f}")
+            if len(user_score_lines) < 9:
+                user_score_lines.append(f"{display_name:<20} {weekly_total:>5.1f}")
         
         # Add user scores as a formatted field
         summary_embed.add_field(
@@ -287,17 +282,14 @@ def RegisterReportingCommands(
             # Get all-time totals
             all_time_totals = reporting.get_all_time_totals()
 
-            # Build individual embeds for top 9 users sorted by total descending
+            # Build individual embeds for top users; resolve names and skip unresolved
             embed_list: list[discord.Embed] = []
-            for user_data in per_user_data[:9]:
+            for user_data in per_user_data:
                 user_id_string = str(user_data['user_id'])
-                
-                # Use display name if available, otherwise create mention
-                if user_id_string in user_display_names:
-                    display_name = f"@{user_display_names[user_id_string]}"
-                else:
-                    display_name = f"<@{user_id_string}>" if user_id_string.isdigit() else user_id_string[:8]
-                
+                resolved = reporting.resolve_display_name(user_id_string, user_display_names)
+                if not resolved:
+                    continue
+                display_name = resolved
                 if len(display_name) > 15:
                     display_name = display_name[:12] + '...'
                 
@@ -328,27 +320,25 @@ def RegisterReportingCommands(
                 embed.add_field(name="Total", value=f"{user_data['total']:.1f}", inline=True)
                 embed.add_field(name="All Time", value=f"{all_time_total:.1f}", inline=True)
                 
-                embed_list.append(embed)
+                if len(embed_list) < 9:
+                    embed_list.append(embed)
 
             # Summary embed with totals and warnings
             summary_embed = discord.Embed(title="Weekly Summary", description=f"Top {min(len(per_user_data), 9)} players", color=0x57F287)
             
             # Create user scores list for the summary
             user_score_lines: list[str] = []
-            for user_data in per_user_data[:9]:
+            for user_data in per_user_data:
                 user_id_string = str(user_data['user_id'])
-                
-                # Use display name if available, otherwise create mention
-                if user_id_string in user_display_names:
-                    display_name = f"@{user_display_names[user_id_string]}"
-                else:
-                    display_name = f"<@{user_id_string}>" if user_id_string.isdigit() else user_id_string[:8]
-                
+                resolved = reporting.resolve_display_name(user_id_string, user_display_names)
+                if not resolved:
+                    continue
+                display_name = resolved
                 if len(display_name) > 20:  # Shorter limit for summary
                     display_name = display_name[:17] + '...'
-                
                 weekly_total = user_data['total']
-                user_score_lines.append(f"{display_name:<20} {weekly_total:>5.1f}")
+                if len(user_score_lines) < 9:
+                    user_score_lines.append(f"{display_name:<20} {weekly_total:>5.1f}")
             
             # Add user scores as a formatted field
             summary_embed.add_field(
