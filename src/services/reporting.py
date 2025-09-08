@@ -28,6 +28,17 @@ def scheduled_report(name: str) -> Callable[[Callable[..., Any]], Callable[..., 
     dispatch to either a bound ReportingService method (if available) or a
     standalone function. This allows EventScheduler to call registered keys
     without needing an instance reference.
+
+    Args:
+        name: The unique name/key for the scheduled report
+    
+    Returns:
+        A decorator which registers the wrapped function
+    
+    Example:
+        @scheduled_report("weekly_image")
+        async def weekly_image(bot, channel):
+            ...
     """
     def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         async def wrapper(*args: Any, **kwargs: Any) -> None:
